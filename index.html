@@ -144,16 +144,16 @@
         console.log('Voice recognition stopped.');
       };
 
-      // On Result (The user finished speaking)
-      recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        console.log("User said: ", transcript);
+     // On Result (The user finished speaking)
+    recognition.onresult = (event) => {
+     const transcript = event.results[0][0].transcript;
+     console.log("User said: ", transcript);
 
-        if (transcript) {
-          // Send the text to the chat widget
-          dfMessenger.renderCustomText(transcript, true);
-        }
-      };
+     if (transcript) {
+    // This sends the query to Dialogflow AND displays it
+    dfMessenger.sendRequestQuery(transcript);
+  }
+};
 
       // On Error
       recognition.onerror = (event) => {
@@ -164,4 +164,5 @@
     }
   </script>
 </body>
+
 </html>

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alice Agent (Voice Enabled)</title>
+
+  <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
+  <style>
+    /* Widget Styling */
+    df-messenger {
+      z-index: 999;
+      position: fixed;
+      --df-messenger-font-color: #000;
+      --df-messenger-font-family: Google Sans;
+      --df-messenger-chat-background: #f3f6fc;
+      --df-messenger-message-user-background: #d3e3fd;
+      --df-messenger-message-bot-background: #fff;
+      bottom: 16px;
+      right: 16px;
+    }
+
+    /* Microphone Button Styling */
+    #voice-trigger-btn {
+      position: fixed;
+      bottom: 100px; 
+      right: 24px;   
+      z-index: 1000;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      border: none;
+      background-color: #4285F4;
+      color: white;
+      font-size: 24px;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s ease;
+      outline: none;
+    }
+
+    #voice-trigger-btn:hover {
+      transform: scale(1.1);
+      background-color: #3367D6;
+    }
+
+    #voice-trigger-btn.recording {
+      background-color: #EA4335;
+      animation: pulse-red 1.5s infinite;
+    }
+
+    @keyframes pulse-red {
+      0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); }
+    }
+  </style>
+</head>
+<body>
+
+  <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
+   
+  <df-messenger
+    location="us"
+    project-id="vz-nonit-np-k25v-dev-aliceg-0"
+    agent-id="3adf7da3-c967-48ee-b295-9a67c9b090fe"
+    language-code="en"
+    max-query-length="-1">
+    <df-messenger-chat-bubble
+      chat-title="alice3-duplicate"
+      chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
+    </df-messenger-chat-bubble>
+  </df-messenger>
+
+  <button id="voice-trigger-btn">🎙️</button>
+
+  <script>
+    const dfMessenger = document.querySelector('df-messenger');
+    const micBtn = document.getElementById('voice-trigger-btn');
+    let isRecording = false;
+
+    // --- 1. TEXT TO SPEECH (BOT SPEAKS) ---
+    // This event fires whenever Dialogflow sends a response back
+    window.addEventListener('df-response-received', (event) => {
+        // Extract the text from the bot's response
+        // Note: The structure depends on your Dialogflow version, but this is standard for V1
+        const botText = event.detail.response.queryResult.fulfillmentText;
+        
+        if (botText) {
+            speakText(botText);
+        }
+    });
+
+    function speakText(text) {
+        // Cancel any current speech to avoid overlap
+        window.speechSynthesis.cancel();
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        
+        // Optional: Customize voice (uncomment to tweak)
+        // utterance.rate = 1;  // Speed: 0.1 to 10
+        // utterance.pitch = 1; // Pitch: 0 to 2
+        
+        window.speechSynthesis.speak(utterance);
+    }
+
+
+    // --- 2. SPEECH TO TEXT (USER SPEAKS) ---
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      console.error("This browser does not support Web Speech API");
+      micBtn.style.display = "none";
+    } else {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+
+      // Handle Mic Click
+      micBtn.addEventListener('click', () => {
+        if (isRecording) {
+            recognition.stop();
+        } else {
+            dfMessenger.setAttribute('expand', 'true');
+            recognition.start();
+        }
+      });
+
+      // On Start
+      recognition.onstart = () => {
+        isRecording = true;
+        micBtn.classList.add('recording');
+        console.log('Voice recognition activated.');
+      };
+
+      // On End
+      recognition.onend = () => {
+        isRecording = false;
+        micBtn.classList.remove('recording');
+        console.log('Voice recognition stopped.');
+      };
+
+      // On Result (The user finished speaking)
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        console.log("User said: ", transcript);
+
+        if (transcript) {
+          // Send the text to the chat widget
+          dfMessenger.renderCustomText(transcript, true);
+        }
+      };
+
+      // On Error
+      recognition.onerror = (event) => {
+        console.error("Speech recognition error", event.error);
+        isRecording = false;
+        micBtn.classList.remove('recording');
+      };
+    }
+  </script>
+</body>
+</html>

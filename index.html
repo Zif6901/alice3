@@ -144,14 +144,18 @@
         console.log('Voice recognition stopped.');
       };
 
-// On Result (The user finished speaking)
+      // On Result (The user finished speaking)
 recognition.onresult = (event) => {
   const transcript = event.results[0][0].transcript;
   console.log("User said: ", transcript);
 
   if (transcript) {
-    // Send the text to the chat widget AND the agent
-    dfMessenger.sendRequestQuery(transcript); 
+    // 1. (Optional) Visually show what the user said immediately
+    // dfMessenger.renderCustomText(transcript, true); 
+    
+    // 2. SEND the text to the agent to trigger a response
+    // The "query" type tells Dialogflow this is a user text input
+    dfMessenger.sendRequest("query", transcript); 
   }
 };
 
@@ -166,3 +170,4 @@ recognition.onresult = (event) => {
 </body>
 
 </html>
+

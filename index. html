@@ -1,26 +1,167 @@
-<link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
-<script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
-<df-messenger
-  location="us"
-  project-id="vz-nonit-np-k25v-dev-aliceg-0"
-  agent-id="3adf7da3-c967-48ee-b295-9a67c9b090fe"
-  language-code="en"
-  max-query-length="-1">
-  <df-messenger-chat-bubble
-    chat-title="alice3-duplicate"
-    chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
-  </df-messenger-chat-bubble>
-</df-messenger>
-<style>
-  df-messenger {
-    z-index: 999;
-    position: fixed;
-    --df-messenger-font-color: #000;
-    --df-messenger-font-family: Google Sans;
-    --df-messenger-chat-background: #f3f6fc;
-    --df-messenger-message-user-background: #d3e3fd;
-    --df-messenger-message-bot-background: #fff;
-    bottom: 16px;
-    right: 16px;
-  }
-</style>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alice Agent (Voice Enabled)</title>
+
+  <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
+  <style>
+    /* Your original widget styling */
+    df-messenger {
+      z-index: 999;
+      position: fixed;
+      --df-messenger-font-color: #000;
+      --df-messenger-font-family: Google Sans;
+      --df-messenger-chat-background: #f3f6fc;
+      --df-messenger-message-user-background: #d3e3fd;
+      --df-messenger-message-bot-background: #fff;
+      bottom: 16px;
+      right: 16px;
+    }
+
+    /* New Microphone Button Styling */
+    #voice-trigger-btn {
+      position: fixed;
+      bottom: 100px; /* Floats just above the chat bubble */
+      right: 24px;   /* Aligned with the chat bubble center */
+      z-index: 1000;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      border: none;
+      background-color: #4285F4; /* Google Blue */
+      color: white;
+      font-size: 24px;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s ease;
+      outline: none;
+    }
+
+    #voice-trigger-btn:hover {
+      transform: scale(1.1);
+      background-color: #3367D6;
+    }
+
+    /* Animation when recording */
+    #voice-trigger-btn.recording {
+      background-color: #EA4335; /* Google Red */
+      animation: pulse-red 1.5s infinite;
+    }
+
+    @keyframes pulse-red {
+      0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); }
+    }
+  </style>
+</head>
+<body>
+
+  <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
+  
+  <df-messenger
+    location="us"
+    project-id="vz-nonit-np-k25v-dev-aliceg-0"
+    agent-id="3adf7da3-c967-48ee-b295-9a67c9b090fe"
+    language-code="en"
+    max-query-length="-1">
+    <df-messenger-chat-bubble
+      chat-title="alice3-duplicate"
+      chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
+    </df-messenger-chat-bubble>
+  </df-messenger>
+
+  <button id="voice-trigger-btn" onclick="toggleRecording()">🎙️</button>
+
+  <script>
+    const dfMessenger = document.querySelector('df-messenger');
+    const micBtn = document.getElementById('voice-trigger-btn');
+    let isRecording = false;
+
+    // A. Setup Browser Speech Recognition (Web Speech API)
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    // Check if browser supports speech
+    if (!SpeechRecognition) {
+      console.error("This browser does not support Web Speech API");
+      micBtn.style.display = "none"; // Hide button if not supported
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false; // Stop after one sentence
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+
+    // --- MIC HANDLERS ---
+    
+    function toggleRecording() {
+      if (isRecording) {
+        recognition.stop();
+      } else {
+        // Open the chat window so user sees their text appear
+        // (Note: df-messenger v1 doesn't always expose an .open() method publicly, 
+        // but this ensures the widget is ready)
+        recognition.start();
+      }
+    }
+
+    recognition.onstart = () => {
+      isRecording = true;
+      micBtn.classList.add('recording');
+      micBtn.innerHTML = '⏹️'; // Stop icon
+    };
+
+    recognition.onend = () => {
+      isRecording = false;
+      micBtn.classList.remove('recording');
+      micBtn.innerHTML = '🎙️'; // Mic icon
+    };
+
+    // When the browser detects text:
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      console.log('User Said:', transcript);
+      
+      // Inject text into Dialogflow as if the user typed it
+      dfMessenger.renderCustomText(transcript); 
+    };
+
+    // --- SPEAKER HANDLERS ---
+
+    // Listen for the Agent's response event
+    dfMessenger.addEventListener('df-response-received', (event) => {
+      const data = event.detail.response.queryResult;
+      
+      // Extract text from the response structure
+      let botText = "";
+      if (data.responseMessages) {
+        data.responseMessages.forEach(msg => {
+          if (msg.text && msg.text.text) {
+             // Combine multiple text bubbles into one string
+             msg.text.text.forEach(t => botText += t + " ");
+          }
+        });
+      }
+
+      // Speak the text
+      if (botText) {
+        speakResponse(botText);
+      }
+    });
+
+    function speakResponse(text) {
+      window.speechSynthesis.cancel(); // Stop any previous speech
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US'; 
+      // utterance.rate = 1.0; // Optional: 1.0 is normal speed
+      window.speechSynthesis.speak(utterance);
+    }
+  </script>
+
+</body>
+</html>

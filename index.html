@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Voice Enabled)</title>
+  <title>Alice Agent (Debug Mode)</title>
   
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -11,40 +11,29 @@
     df-messenger {
       z-index: 999;
       position: fixed;
-      --df-messenger-font-color: #000;
-      --df-messenger-font-family: Google Sans;
-      --df-messenger-chat-background: #f3f6fc;
-      --df-messenger-message-user-background: #d3e3fd;
-      --df-messenger-message-bot-background: #fff;
       bottom: 16px;
       right: 16px;
     }
 
-    /* Mic Button Styling */
+    /* MOVED BUTTON TO TOP LEFT TO PREVENT OVERLAP ISSUES */
     #voice-trigger-btn {
       position: fixed;
-      bottom: 100px; 
-      right: 24px;   
-      z-index: 1000;
-      width: 50px;
-      height: 50px;
+      top: 20px; 
+      left: 20px;   
+      z-index: 99999; /* Super high Z-index */
+      width: 60px;
+      height: 60px;
       border-radius: 50%;
-      border: none;
+      border: 2px solid white;
       background-color: #4285F4;
       color: white;
-      font-size: 24px;
+      font-size: 30px;
       cursor: pointer;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.3s ease;
       outline: none;
-    }
-
-    #voice-trigger-btn:hover {
-      transform: scale(1.1);
-      background-color: #3367D6;
     }
 
     #voice-trigger-btn.recording {
@@ -58,21 +47,18 @@
       100% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); }
     }
 
-    /* Status Indicator */
+    /* Status Bar at Top */
     #status-indicator {
       position: fixed;
-      bottom: 160px;
-      right: 24px;
+      top: 30px;
+      left: 100px;
       background-color: #333;
       color: white;
-      padding: 8px 16px;
-      border-radius: 20px;
-      font-family: 'Google Sans', sans-serif;
-      font-size: 14px;
-      opacity: 0.9;
-      z-index: 1000;
-      pointer-events: none;
-      display: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-family: sans-serif;
+      font-weight: bold;
+      z-index: 10000;
     }
   </style>
 </head>
@@ -92,77 +78,127 @@
     </df-messenger-chat-bubble>
   </df-messenger>
 
-  <div id="status-indicator">Ready</div>
+  <div id="status-indicator">Initializing...</div>
   <button id="voice-trigger-btn">🎙️</button>
 
   <script>
-    const dfMessenger = document.querySelector('df-messenger');
-    const micBtn = document.getElementById('voice-trigger-btn');
-    const statusDiv = document.getElementById('status-indicator');
-
-    // --- HELPER: Set Status ---
-    function setStatus(text, show = true) {
-        statusDiv.innerText = text;
-        statusDiv.style.display = show ? 'block' : 'none';
-    }
-
-    // --- HELPER: Send to Dialogflow (The Fix) ---
-    function sendToDialogflow(text) {
-        // We need to find the internal 'df-messenger-chat' component
-        // This is hidden inside the Shadow DOM of the main widget
-        try {
-            const internalChat = dfMessenger.shadowRoot.querySelector('df-messenger-chat');
-            
-            if (internalChat) {
-                // 'sendRequest' is the method name in V1 Shadow DOM
-                // true = display the text in the chat history
-                internalChat.sendRequest(text, true); 
-                console.log("📤 Sent via Shadow DOM");
-            } else {
-                console.error("❌ Could not find internal chat component. Widget might not be loaded.");
-            }
-        } catch (e) {
-            console.error("❌ Error sending query:", e);
-        }
-    }
-
-    // --- 1. BOT SPEAKS (TTS) ---
-    window.addEventListener('df-response-received', (event) => {
-        console.log("✅ Bot Response Received");
-        const botText = event.detail.response.queryResult.fulfillmentText;
-        if (botText) speakText(botText);
-    });
-
-    function speakText(text) {
-        try { recognition.stop(); } catch(e) {}
-        window.speechSynthesis.cancel();
-
-        setStatus("Alice is speaking...");
-        const utterance = new SpeechSynthesisUtterance(text);
+    // 1. Wait for Window Load to ensure all elements exist
+    window.addEventListener('load', () => {
+        const micBtn = document.getElementById('voice-trigger-btn');
+        const statusDiv = document.getElementById('status-indicator');
+        const dfMessenger = document.querySelector('df-messenger');
         
-        // Restart mic after bot is done
-        utterance.onend = () => {
-             if (micBtn.classList.contains('recording')) {
-                 try {
-                     recognition.start();
-                     setStatus("Listening...");
-                 } catch (e) { }
-             }
+        // Check Browser Support
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            statusDiv.innerText = "Error: Browser does not support Voice.";
+            statusDiv.style.backgroundColor = "red";
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.lang = 'en-US';
+        recognition.interimResults = false;
+
+        statusDiv.innerText = "Ready (HTTPS Required)";
+
+        // --- HELPER: Send to Dialogflow V1 ---
+        function sendToDialogflow(text) {
+            // Try to find the internal chat component
+            // We retry a few times in case it's still loading
+            const attemptSend = () => {
+                try {
+                    const internalChat = dfMessenger.shadowRoot.querySelector('df-messenger-chat');
+                    if (internalChat) {
+                        internalChat.sendRequest(text, true);
+                        console.log("Sent to Agent:", text);
+                    } else {
+                        // Retry once if widget isn't ready
+                        console.warn("Widget not ready, retrying...");
+                        setTimeout(attemptSend, 500);
+                    }
+                } catch (e) {
+                    alert("Error communicating with Agent: " + e.message);
+                }
+            };
+            attemptSend();
+        }
+
+        // --- BUTTON CLICK ---
+        micBtn.addEventListener('click', () => {
+            // Visual check: did the click register?
+            console.log("Button Clicked"); 
+
+            if (micBtn.classList.contains('recording')) {
+                // STOP
+                micBtn.classList.remove('recording');
+                recognition.stop();
+                window.speechSynthesis.cancel();
+                statusDiv.innerText = "Stopped";
+            } else {
+                // START
+                statusDiv.innerText = "Listening...";
+                micBtn.classList.add('recording');
+                
+                // Open Chat Window
+                dfMessenger.setAttribute('expand', 'true');
+                
+                try {
+                    recognition.start();
+                } catch (e) {
+                    alert("Microphone Error: " + e.message + "\nAre you using HTTPS?");
+                    micBtn.classList.remove('recording');
+                }
+            }
+        });
+
+        // --- MICROPHONE RESULTS ---
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            statusDiv.innerText = "Sending: " + transcript;
+            
+            if (transcript) {
+                sendToDialogflow(transcript);
+            }
         };
-        window.speechSynthesis.speak(utterance);
-    }
 
-    // --- 2. USER SPEAKS (STT) ---
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognition.onerror = (event) => {
+            console.error(event.error);
+            micBtn.classList.remove('recording');
+            statusDiv.innerText = "Error: " + event.error;
+        };
 
-    if (!SpeechRecognition) {
-      console.error("❌ Web Speech API not supported");
-      micBtn.style.display = "none";
-    } else {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.lang = 'en-US';
-      recognition.interimResults = false;
+        recognition.onend = () => {
+            // If we are not in a loop, just show ready
+            if (!micBtn.classList.contains('recording')) {
+                 statusDiv.innerText = "Ready";
+            }
+        };
 
-      // Click Handler
-      micBtn.addEventListener
+        // --- BOT RESPONSE HANDLING ---
+        window.addEventListener('df-response-received', (event) => {
+            const botText = event.detail.response.queryResult.fulfillmentText;
+            if (botText) {
+                statusDiv.innerText = "Alice is speaking...";
+                
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(botText);
+                
+                utterance.onend = () => {
+                    // Auto-restart loop
+                    if (micBtn.classList.contains('recording')) {
+                        try {
+                            statusDiv.innerText = "Listening...";
+                            recognition.start();
+                        } catch(e) {}
+                    }
+                };
+                
+                window.speechSynthesis.speak(utterance);
+            }
+        });
+    });
+  </script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -7,7 +7,7 @@
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
-    /* Your original widget styling */
+    /* Widget Styling */
     df-messenger {
       z-index: 999;
       position: fixed;
@@ -20,17 +20,17 @@
       right: 16px;
     }
 
-    /* New Microphone Button Styling */
+    /* Microphone Button Styling */
     #voice-trigger-btn {
       position: fixed;
-      bottom: 100px; /* Floats just above the chat bubble */
-      right: 24px;   /* Aligned with the chat bubble center */
+      bottom: 100px; 
+      right: 24px;   
       z-index: 1000;
       width: 50px;
       height: 50px;
       border-radius: 50%;
       border: none;
-      background-color: #4285F4; /* Google Blue */
+      background-color: #4285F4;
       color: white;
       font-size: 24px;
       cursor: pointer;
@@ -47,9 +47,8 @@
       background-color: #3367D6;
     }
 
-    /* Animation when recording */
     #voice-trigger-btn.recording {
-      background-color: #EA4335; /* Google Red */
+      background-color: #EA4335;
       animation: pulse-red 1.5s infinite;
     }
 
@@ -83,146 +82,32 @@
     const micBtn = document.getElementById('voice-trigger-btn');
     let isRecording = false;
 
-    // --- 1. SETUP SPEECH RECOGNITION ---
-    // Using standard Web Speech API
+    // --- SETUP SPEECH RECOGNITION ---
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     
-    // Check support
     if (!SpeechRecognition) {
       console.error("This browser does not support Web Speech API");
       micBtn.style.display = "none";
     }
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = false; // Capture one sentence at a time
+    recognition.continuous = false;
     recognition.lang = 'en-US';
     recognition.interimResults = false;
 
-    // --- 2. MIC BUTTON HANDLERS ---
-    
+    // --- MIC HANDLERS ---
     function toggleRecording() {
       if (isRecording) {
         recognition.stop();
       } else {
-        // IMPORTANT: We must expand the chat widget so the input field exists in the DOM.
-        // If the chat is closed, the input element is hidden/null and we cannot inject text.
+        // Expand the widget so the input box exists
         dfMessenger.setAttribute('expand', 'true');
-        
         recognition.start();
       }
     }
 
     recognition.onstart = () => {
       isRecording = true;
-      micBtn.classList.add('recording');
-      micBtn.innerHTML = '⏹️'; // Switch to Stop icon
-    };
 
-    recognition.onend = () => {
-      isRecording = false;
-      micBtn.classList.remove('recording');
-      micBtn.innerHTML = '🎙️'; // Switch back to Mic icon
-    };
-
-    // --- 3. HANDLE RESULTS (THE FIX) ---
-    
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      console.log('User Said:', transcript);
-      
-      // We pass the transcript to our helper function to "type" it for the user
-      sendTextToBot(transcript);
-    };
-
-    /**
-     * Helper function: Pierces the Shadow DOM to find the specific input field
-     * inside the Dialogflow widget, sets the text, and triggers an "Enter" key press.
-     */
-    function sendTextToBot(text) {
-      // 1. Get the messenger's shadow root
-      const messengerShadow = dfMessenger.shadowRoot;
-      if (!messengerShadow) {
-        console.error("Shadow DOM not found. Widget might not be loaded yet.");
-        return;
-      }
-
-      // 2. Find the internal chat component
-      const chatComponent = messengerShadow.querySelector('df-messenger-chat');
-      if (!chatComponent) {
-        console.error("Chat component not found.");
-        return;
-      }
-
-      // 3. Find the user input component inside the chat
-      const userInputComponent = chatComponent.shadowRoot.querySelector('df-messenger-user-input');
-      if (!userInputComponent) {
-        console.error("User input component not found.");
-        return;
-      }
-
-      // 4. Find the actual native <input> element
-      const inputElement = userInputComponent.shadowRoot.querySelector('input');
-      if (!inputElement) {
-        console.error("Input field not found.");
-        return;
-      }
-
-      // 5. Set the value and trigger events
-      inputElement.value = text;
-      
-      // Dispatch 'input' event so the component state updates
-      inputElement.dispatchEvent(new Event('input', { bubbles: true }));
-
-      // Dispatch 'Enter' keydown to submit the message
-      const enterEvent = new KeyboardEvent('keydown', {
-        key: 'Enter',
-        code: 'Enter',
-        keyCode: 13,
-        which: 13,
-        bubbles: true
-      });
-      inputElement.dispatchEvent(enterEvent);
-    }
-
-    // --- 4. TEXT TO SPEECH (BOT RESPONSE) ---
-
-    // Listen for the Agent's response event
-    dfMessenger.addEventListener('df-response-received', (event) => {
-      const data = event.detail.response.queryResult;
-      
-      let botText = "";
-      
-      // 1. Try to get text from responseMessages (Standard structure)
-      if (data.responseMessages) {
-        data.responseMessages.forEach(msg => {
-          if (msg.text && msg.text.text) {
-             msg.text.text.forEach(t => botText += t + " ");
-          }
-        });
-      }
-      
-      // 2. Fallback for Fulfillment Text (if using older fulfillment structure)
-      if (!botText && data.fulfillmentText) {
-        botText = data.fulfillmentText;
-      }
-
-      // Speak the text if we found any
-      if (botText) {
-        speakResponse(botText);
-      }
-    });
-
-    function speakResponse(text) {
-      // Stop any current speech before starting new speech
-      window.speechSynthesis.cancel();
-      
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'en-US'; 
-      // utterance.rate = 1.0; 
-      
-      window.speechSynthesis.speak(utterance);
-    }
-  </script>
-
-</body>
-</html>
+ 
+  

@@ -82,13 +82,27 @@
     const micBtn = document.getElementById('voice-trigger-btn');
     let isRecording = false;
 
-    // --- 1. TEXT TO SPEECH (BOT SPEAKS) ---
-    // This event fires whenever Dialogflow sends a response back
+   // --- 1. ROBUST TEXT TO SPEECH ---
     window.addEventListener('df-response-received', (event) => {
-        // Extract the text from the bot's response
-        // Note: The structure depends on your Dialogflow version, but this is standard for V1
-        const botText = event.detail.response.queryResult.fulfillmentText;
+        const queryResult = event.detail.response.queryResult;
         
+        let botText = "";
+
+        // Attempt 1: Dialogflow ES structure
+        if (queryResult.fulfillmentText) {
+            botText = queryResult.fulfillmentText;
+        } 
+        // Attempt 2: Dialogflow CX structure
+        else if (queryResult.responseMessages && queryResult.responseMessages.length > 0) {
+            // CX returns an array of messages; we usually want the first text response
+            const textMsg = queryResult.responseMessages.find(msg => msg.text);
+            if (textMsg && textMsg.text.text.length > 0) {
+                botText = textMsg.text.text[0];
+            }
+        }
+
+        console.log("Bot Text Found:", botText); // Check console to verify
+
         if (botText) {
             speakText(botText);
         }
@@ -170,5 +184,6 @@ recognition.onresult = (event) => {
 </body>
 
 </html>
+
 
 

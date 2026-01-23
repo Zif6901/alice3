@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Voice Enabled)</title>
+  <title>Alice Agent (Voice & Audio Enabled)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
-    /* Widget Styling */
+    /* --- Widget Styling --- */
     df-messenger {
       z-index: 999;
       position: fixed;
@@ -20,7 +20,7 @@
       right: 16px;
     }
 
-    /* Microphone Button Styling */
+    /* --- Microphone Button Styling --- */
     #voice-trigger-btn {
       position: fixed;
       bottom: 100px; 
@@ -52,6 +52,38 @@
       animation: pulse-red 1.5s infinite;
     }
 
+    /* --- Mute Button Styling --- */
+    #mute-btn {
+      position: fixed;
+      bottom: 160px; /* Positioned above the mic button */
+      right: 24px;   
+      z-index: 1000;
+      width: 40px;   
+      height: 40px;
+      border-radius: 50%;
+      border: none;
+      background-color: #f1f3f4;
+      color: #5f6368;
+      font-size: 20px;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      outline: none;
+    }
+
+    #mute-btn:hover {
+      background-color: #e8eaed;
+      transform: scale(1.1);
+    }
+    
+    #mute-btn.muted {
+      background-color: #fce8e6;
+      color: #d93025;
+    }
+
     @keyframes pulse-red {
       0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); }
       70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
@@ -75,58 +107,80 @@
     </df-messenger-chat-bubble>
   </df-messenger>
 
-  <button id="voice-trigger-btn">🎙️</button>
+  <button id="mute-btn" title="Toggle Mute">🔊</button>
+  
+  <button id="voice-trigger-btn" title="Speak">🎙️</button>
 
   <script>
     const dfMessenger = document.querySelector('df-messenger');
     const micBtn = document.getElementById('voice-trigger-btn');
+    const muteBtn = document.getElementById('mute-btn');
+    
     let isRecording = false;
+    let isMuted = false;
 
-   // --- 1. ROBUST TEXT TO SPEECH ---
+    // Force browser to load voices immediately
+    window.speechSynthesis.getVoices();
+
+    // --- 1. MUTE BUTTON LOGIC ---
+    muteBtn.addEventListener('click', () => {
+        isMuted = !isMuted;
+        if (isMuted) {
+            muteBtn.textContent = "🔇";
+            muteBtn.classList.add('muted');
+            window.speechSynthesis.cancel(); // Stop current speech
+        } else {
+            muteBtn.textContent = "🔊";
+            muteBtn.classList.remove('muted');
+        }
+    });
+
+    // --- 2. HANDLE RESPONSES (TTS & AUDIO FILES) ---
     window.addEventListener('df-response-received', (event) => {
         const queryResult = event.detail.response.queryResult;
-        
         let botText = "";
 
-        // Attempt 1: Dialogflow ES structure
+        // A. Extract Text (Check both Dialogflow ES and CX structures)
         if (queryResult.fulfillmentText) {
+            // ES Structure
             botText = queryResult.fulfillmentText;
-        } 
-        // Attempt 2: Dialogflow CX structure
-        else if (queryResult.responseMessages && queryResult.responseMessages.length > 0) {
-            // CX returns an array of messages; we usually want the first text response
+        } else if (queryResult.responseMessages) {
+            // CX Structure
             const textMsg = queryResult.responseMessages.find(msg => msg.text);
             if (textMsg && textMsg.text.text.length > 0) {
                 botText = textMsg.text.text[0];
             }
         }
 
-        console.log("Bot Text Found:", botText); // Check console to verify
-
-        if (botText) {
+        // B. Speak Text (if not muted)
+        if (botText && !isMuted) {
             speakText(botText);
+        }
+
+        // C. Check for Custom Audio Payload (e.g. { "audioUrl": "..." })
+        // Checks 'fulfillmentMessages' (ES) or 'responseMessages' (CX)
+        const messages = queryResult.fulfillmentMessages || queryResult.responseMessages;
+        if (messages && !isMuted) {
+            const payloadMsg = messages.find(msg => msg.payload && msg.payload.audioUrl);
+            if (payloadMsg) {
+                const audio = new Audio(payloadMsg.payload.audioUrl);
+                audio.play().catch(e => console.error("Audio playback error:", e));
+            }
         }
     });
 
     function speakText(text) {
-        // Cancel any current speech to avoid overlap
-        window.speechSynthesis.cancel();
-
+        window.speechSynthesis.cancel(); // Cancel previous
         const utterance = new SpeechSynthesisUtterance(text);
-        
-        // Optional: Customize voice (uncomment to tweak)
-        // utterance.rate = 1;  // Speed: 0.1 to 10
-        // utterance.pitch = 1; // Pitch: 0 to 2
-        
+        // utterance.rate = 1.0; 
         window.speechSynthesis.speak(utterance);
     }
 
-
-    // --- 2. SPEECH TO TEXT (USER SPEAKS) ---
+    // --- 3. SPEECH RECOGNITION (USER SPEAKS) ---
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      console.error("This browser does not support Web Speech API");
+      console.error("Web Speech API not supported");
       micBtn.style.display = "none";
     } else {
       const recognition = new SpeechRecognition();
@@ -134,56 +188,49 @@
       recognition.lang = 'en-US';
       recognition.interimResults = false;
 
-      // Handle Mic Click
       micBtn.addEventListener('click', () => {
         if (isRecording) {
             recognition.stop();
         } else {
+            // Ensure chat is open when speaking
             dfMessenger.setAttribute('expand', 'true');
             recognition.start();
         }
       });
 
-      // On Start
       recognition.onstart = () => {
         isRecording = true;
         micBtn.classList.add('recording');
-        console.log('Voice recognition activated.');
       };
 
-      // On End
       recognition.onend = () => {
         isRecording = false;
         micBtn.classList.remove('recording');
-        console.log('Voice recognition stopped.');
       };
 
-      // On Result (The user finished speaking)
-recognition.onresult = (event) => {
-  const transcript = event.results[0][0].transcript;
-  console.log("User said: ", transcript);
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        console.log("User said: ", transcript);
 
-  if (transcript) {
-    // 1. (Optional) Visually show what the user said immediately
-     dfMessenger.renderCustomText(transcript, true); 
-    
-    // 2. SEND the text to the agent to trigger a response
-    // The "query" type tells Dialogflow this is a user text input
-    dfMessenger.sendRequest("query", transcript); 
-  }
-};
+        if (transcript) {
+          // 1. VISUAL: Show user text in chat bubble (User Request)
+          dfMessenger.renderCustomText(transcript, true); 
+          
+          // 2. LOGIC: Send text to Dialogflow
+          dfMessenger.sendRequest("query", transcript); 
+        }
+      };
 
-      // On Error
       recognition.onerror = (event) => {
-        console.error("Speech recognition error", event.error);
+        console.error("Speech error", event.error);
         isRecording = false;
         micBtn.classList.remove('recording');
       };
     }
   </script>
 </body>
-
 </html>
+
 
 
 

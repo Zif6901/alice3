@@ -130,73 +130,74 @@
     const muteBtn = document.getElementById('mute-btn');
     let isMuted = false;
 
-    // --- 1. DIAGNOSTIC: FORCE AUDIO TEST ---
-    // Add a temporary test button to the top left to rule out browser issues
-    const testBtn = document.createElement('button');
-    testBtn.innerText = "🔊 Click to Test System Audio";
-    testBtn.style.position = "fixed";
-    testBtn.style.top = "10px";
-    testBtn.style.left = "10px";
-    testBtn.style.zIndex = "2000";
-    document.body.appendChild(testBtn);
+    // Force voices to load
+    window.speechSynthesis.getVoices();
 
-    testBtn.addEventListener('click', () => {
-        console.log("--- Manual Audio Test Initiated ---");
-        const utterance = new SpeechSynthesisUtterance("System audio is working.");
-        window.speechSynthesis.speak(utterance);
-    });
-
-    // --- 2. HANDLE DIALOGFLOW RESPONSES ---
+    // --- 1. SAFE RESPONSE HANDLING ---
     window.addEventListener('df-response-received', (event) => {
-        console.log("--- Response Received from Dialogflow ---");
+        console.log("✅ Event Triggered");
         
-        // Log the raw data to see exactly what Dialogflow sent
-        const data = event.detail.response;
-        console.log("Raw Response Data:", data);
+        // 1. Inspect the ENTIRE detail object to find where data is hiding
+        console.log("Full Event Detail:", event.detail);
 
-        const queryResult = data.queryResult;
-        let botText = "";
-
-        // DEBUG: Check which data structure we have
-        if (queryResult.fulfillmentText) {
-            console.log("Detected Dialogflow ES structure.");
-            botText = queryResult.fulfillmentText;
-        } else if (queryResult.responseMessages) {
-            console.log("Detected Dialogflow CX structure.");
-            const textMsg = queryResult.responseMessages.find(msg => msg.text);
-            if (textMsg && textMsg.text.text.length > 0) {
-                botText = textMsg.text.text[0];
-            }
-        } else {
-            console.warn("Could not find any text in the response!");
+        // 2. SAFETY CHECK: Find the correct data path
+        let data = null;
+        if (event.detail.response) {
+            data = event.detail.response; // Standard Path
+        } else if (event.detail.queryResult) {
+            data = event.detail; // Alternative Path (Data is at top level)
+        } else if (event.detail.data) {
+            data = event.detail.data; // Alternative Path 2
         }
 
-        console.log("Text to Speak:", botText);
+        // If we still can't find data, stop here to prevent crash
+        if (!data) {
+            console.error("❌ Could not find 'response' or 'queryResult' in event.detail");
+            return;
+        }
 
+        // 3. Extract Text (Try both ES and CX structures on the found data)
+        let botText = "";
+        const queryResult = data.queryResult;
+
+        if (queryResult) {
+             if (queryResult.fulfillmentText) {
+                // Dialogflow ES
+                botText = queryResult.fulfillmentText;
+                console.log("Mode: Dialogflow ES");
+            } else if (queryResult.responseMessages) {
+                // Dialogflow CX
+                console.log("Mode: Dialogflow CX");
+                const textMsg = queryResult.responseMessages.find(msg => msg.text);
+                if (textMsg && textMsg.text.text.length > 0) {
+                    botText = textMsg.text.text[0];
+                }
+            }
+        }
+
+        console.log("🗣️ Bot Text to Speak:", botText);
+
+        // 4. Speak
         if (botText && !isMuted) {
             speakText(botText);
-        } else if (isMuted) {
-            console.log("Skipped speaking: System is Muted.");
         }
     });
 
     function speakText(text) {
-        if (!text) return;
-        
-        // Ensure voices are ready
-        if (window.speechSynthesis.getVoices().length === 0) {
-             console.warn("Voices not loaded yet. Retrying in 100ms...");
-             setTimeout(() => speakText(text), 100);
-             return;
-        }
-
-        console.log("Attempting to speak...");
         window.speechSynthesis.cancel(); 
         const utterance = new SpeechSynthesisUtterance(text);
         window.speechSynthesis.speak(utterance);
     }
 
-    // --- 3. SPEECH RECOGNITION (Minimal Version) ---
+    // --- 2. MUTE BUTTON ---
+    muteBtn.addEventListener('click', () => {
+        isMuted = !isMuted;
+        muteBtn.textContent = isMuted ? "🔇" : "🔊";
+        muteBtn.classList.toggle('muted', isMuted);
+        if (isMuted) window.speechSynthesis.cancel();
+    });
+
+    // --- 3. SPEECH RECOGNITION ---
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (SpeechRecognition) {
@@ -205,8 +206,9 @@
       recognition.lang = 'en-US';
 
       micBtn.addEventListener('click', () => {
+          dfMessenger.setAttribute('expand', 'true');
           recognition.start();
-          micBtn.style.backgroundColor = "red"; // Visual cue
+          micBtn.style.backgroundColor = "red"; 
       });
 
       recognition.onresult = (event) => {
@@ -217,12 +219,13 @@
       };
 
       recognition.onend = () => { 
-          micBtn.style.backgroundColor = "#4285F4"; // Reset color
+          micBtn.style.backgroundColor = "#4285F4"; 
       };
     }
   </script>
 </body>
 </html>
+
 
 
 

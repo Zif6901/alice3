@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Voice & Audio Enabled)</title>
+  <title>Alice Agent (Wake Word Enabled)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -26,13 +26,13 @@
       bottom: 100px; 
       right: 24px;   
       z-index: 1000;
-      width: 50px;
-      height: 50px;
+      width: 60px;
+      height: 60px;
       border-radius: 50%;
       border: none;
-      background-color: #4285F4;
+      background-color: #4285F4; /* Default Google Blue */
       color: white;
-      font-size: 24px;
+      font-size: 28px;
       cursor: pointer;
       box-shadow: 0 4px 8px rgba(0,0,0,0.2);
       display: flex;
@@ -44,19 +44,26 @@
 
     #voice-trigger-btn:hover {
       transform: scale(1.1);
-      background-color: #3367D6;
+      box-shadow: 0 6px 12px rgba(0,0,0,0.3);
     }
 
-    #voice-trigger-btn.recording {
+    /* STATE: Listening for Wake Word (Blue Pulse) */
+    #voice-trigger-btn.listening {
+      background-color: #4285F4; 
+      animation: pulse-blue 2s infinite;
+    }
+
+    /* STATE: Processing/Active (Red Pulse) */
+    #voice-trigger-btn.processing {
       background-color: #EA4335;
-      animation: pulse-red 1.5s infinite;
+      animation: pulse-red 1.0s infinite;
     }
 
     /* --- Mute Button Styling --- */
     #mute-btn {
       position: fixed;
-      bottom: 160px; /* Positioned above the mic button */
-      right: 24px;   
+      bottom: 170px; 
+      right: 34px;   
       z-index: 1000;
       width: 40px;   
       height: 40px;
@@ -84,6 +91,13 @@
       color: #d93025;
     }
 
+    /* Animations */
+    @keyframes pulse-blue {
+      0% { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.7); }
+      70% { box-shadow: 0 0 0 15px rgba(66, 133, 244, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0); }
+    }
+
     @keyframes pulse-red {
       0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); }
       70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
@@ -107,129 +121,174 @@
     </df-messenger-chat-bubble>
   </df-messenger>
 
-  <button id="mute-btn" title="Toggle Mute">🔊</button>
-  
-  <button id="voice-trigger-btn" title="Speak">🎙️</button>
+  <button id="mute-btn" title="Toggle Sound Response">🔊</button>
+  <button id="voice-trigger-btn" title="Start/Stop Wake Word Detection">🎙️</button>
 
   <script>
     const dfMessenger = document.querySelector('df-messenger');
     const micBtn = document.getElementById('voice-trigger-btn');
     const muteBtn = document.getElementById('mute-btn');
     
-    let isRecording = false;
-    let isMuted = false;
+    // --- CONFIGURATION ---
+    const WAKE_WORD = "alice"; // The word to listen for (case-insensitive)
+    
+    let isWakeWordActive = false; // Is the mic currently on loop?
+    let isMuted = false;          // Is the bot muted?
 
-    // Force browser to load voices immediately
+    // Force voice load
     window.speechSynthesis.getVoices();
 
-    // --- 1. MUTE BUTTON LOGIC ---
+    // ---------------------------------------------------------
+    // 1. MUTE/UNMUTE LOGIC
+    // ---------------------------------------------------------
     muteBtn.addEventListener('click', () => {
         isMuted = !isMuted;
         if (isMuted) {
             muteBtn.textContent = "🔇";
             muteBtn.classList.add('muted');
-            window.speechSynthesis.cancel(); // Stop current speech
+            window.speechSynthesis.cancel(); 
         } else {
             muteBtn.textContent = "🔊";
             muteBtn.classList.remove('muted');
         }
     });
 
-    // --- 2. HANDLE RESPONSES (TTS & AUDIO FILES) ---
+    // ---------------------------------------------------------
+    // 2. TEXT-TO-SPEECH & AUDIO HANDLING
+    // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
         const queryResult = event.detail.response.queryResult;
         let botText = "";
 
-        // A. Extract Text (Check both Dialogflow ES and CX structures)
+        // Extract Text (Supports ES and CX)
         if (queryResult.fulfillmentText) {
-            // ES Structure
             botText = queryResult.fulfillmentText;
         } else if (queryResult.responseMessages) {
-            // CX Structure
             const textMsg = queryResult.responseMessages.find(msg => msg.text);
             if (textMsg && textMsg.text.text.length > 0) {
                 botText = textMsg.text.text[0];
             }
         }
 
-        // B. Speak Text (if not muted)
+        // Speak Text
         if (botText && !isMuted) {
             speakText(botText);
         }
 
-        // C. Check for Custom Audio Payload (e.g. { "audioUrl": "..." })
-        // Checks 'fulfillmentMessages' (ES) or 'responseMessages' (CX)
+        // Play Custom Audio Payload
         const messages = queryResult.fulfillmentMessages || queryResult.responseMessages;
         if (messages && !isMuted) {
             const payloadMsg = messages.find(msg => msg.payload && msg.payload.audioUrl);
             if (payloadMsg) {
                 const audio = new Audio(payloadMsg.payload.audioUrl);
-                audio.play().catch(e => console.error("Audio playback error:", e));
+                audio.play().catch(e => console.error("Audio error:", e));
             }
         }
     });
 
     function speakText(text) {
-        window.speechSynthesis.cancel(); // Cancel previous
+        window.speechSynthesis.cancel(); 
         const utterance = new SpeechSynthesisUtterance(text);
-        // utterance.rate = 1.0; 
         window.speechSynthesis.speak(utterance);
     }
 
-    // --- 3. SPEECH RECOGNITION (USER SPEAKS) ---
+    // ---------------------------------------------------------
+    // 3. WAKE WORD SPEECH RECOGNITION
+    // ---------------------------------------------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      console.error("Web Speech API not supported");
+      console.error("Web Speech API not supported in this browser.");
       micBtn.style.display = "none";
     } else {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
+      recognition.continuous = true;   // Keep listening even after silence
+      recognition.interimResults = false; // Only process full sentences
       recognition.lang = 'en-US';
-      recognition.interimResults = false;
 
+      // --- Button Click (Start/Stop the Loop) ---
       micBtn.addEventListener('click', () => {
-        if (isRecording) {
+        if (isWakeWordActive) {
+            // STOP Listening
+            isWakeWordActive = false;
             recognition.stop();
+            micBtn.classList.remove('listening', 'processing');
+            console.log("Wake word detection stopped.");
         } else {
-            // Ensure chat is open when speaking
-            dfMessenger.setAttribute('expand', 'true');
+            // START Listening
+            isWakeWordActive = true;
+            dfMessenger.setAttribute('expand', 'true'); // Open chat
             recognition.start();
+            micBtn.classList.add('listening'); // Pulse Blue
+            console.log("Listening for wake word: " + WAKE_WORD);
         }
       });
 
-      recognition.onstart = () => {
-        isRecording = true;
-        micBtn.classList.add('recording');
-      };
-
-      recognition.onend = () => {
-        isRecording = false;
-        micBtn.classList.remove('recording');
-      };
-
+      // --- On Result (Processing Speech) ---
       recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        console.log("User said: ", transcript);
+        // Iterate through results (continuous mode sends multiple)
+        const latestResultIndex = event.results.length - 1;
+        const transcript = event.results[latestResultIndex][0].transcript;
+        const lowerTranscript = transcript.toLowerCase().trim();
 
-        if (transcript) {
-          // 1. VISUAL: Show user text in chat bubble (User Request)
-          dfMessenger.renderCustomText(transcript, true); 
-          
-          // 2. LOGIC: Send text to Dialogflow
-          dfMessenger.sendRequest("query", transcript); 
+        console.log("Heard:", lowerTranscript);
+
+        // CHECK FOR WAKE WORD
+        if (lowerTranscript.includes(WAKE_WORD)) {
+            
+            // 1. Visual Feedback
+            micBtn.classList.remove('listening');
+            micBtn.classList.add('processing'); // Pulse Red temporarily
+
+            // 2. Extract Command (Everything AFTER the wake word)
+            // Example: "Hey Alice what is the weather" -> "what is the weather"
+            const parts = lowerTranscript.split(WAKE_WORD);
+            const command = parts[parts.length - 1].trim();
+
+            if (command.length > 0) {
+                console.log("Command detected:", command);
+                
+                // 3. Show User Bubble
+                dfMessenger.renderCustomText(command, true);
+                
+                // 4. Send to Agent
+                dfMessenger.sendRequest("query", command);
+            }
+
+            // 5. Reset Visuals after a short delay
+            setTimeout(() => {
+                micBtn.classList.remove('processing');
+                if (isWakeWordActive) micBtn.classList.add('listening');
+            }, 2000);
+        }
+      };
+
+      // --- Auto-Restart Logic (Keep-Alive) ---
+      recognition.onend = () => {
+        if (isWakeWordActive) {
+            console.log("Stream ended. Restarting...");
+            // Small delay to prevent CPU thrashing if it fails repeatedly
+            setTimeout(() => {
+                try {
+                    recognition.start();
+                } catch (e) {
+                    console.error("Restart failed:", e);
+                }
+            }, 500); 
+        } else {
+             micBtn.classList.remove('listening', 'processing');
         }
       };
 
       recognition.onerror = (event) => {
         console.error("Speech error", event.error);
-        isRecording = false;
-        micBtn.classList.remove('recording');
+        // If "no-speech" or similar errors occur, the onend handler will simply restart it.
       };
     }
   </script>
 </body>
 </html>
+
 
 
 

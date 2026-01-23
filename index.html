@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Wake Word Enabled)</title>
+  <title>Alice Agent (Debugged)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -20,7 +20,7 @@
       right: 16px;
     }
 
-    /* --- Microphone Button Styling --- */
+    /* --- Microphone Button --- */
     #voice-trigger-btn {
       position: fixed;
       bottom: 100px; 
@@ -30,7 +30,7 @@
       height: 60px;
       border-radius: 50%;
       border: none;
-      background-color: #4285F4; /* Default Google Blue */
+      background-color: #4285F4;
       color: white;
       font-size: 28px;
       cursor: pointer;
@@ -44,25 +44,17 @@
 
     #voice-trigger-btn:hover {
       transform: scale(1.1);
-      box-shadow: 0 6px 12px rgba(0,0,0,0.3);
     }
 
-    /* STATE: Listening for Wake Word (Blue Pulse) */
-    #voice-trigger-btn.listening {
-      background-color: #4285F4; 
-      animation: pulse-blue 2s infinite;
-    }
-
-    /* STATE: Processing/Active (Red Pulse) */
-    #voice-trigger-btn.processing {
+    #voice-trigger-btn.recording {
       background-color: #EA4335;
-      animation: pulse-red 1.0s infinite;
+      animation: pulse-red 1.5s infinite;
     }
 
-    /* --- Mute Button Styling --- */
+    /* --- Mute Button --- */
     #mute-btn {
       position: fixed;
-      bottom: 170px; 
+      bottom: 170px;
       right: 34px;   
       z-index: 1000;
       width: 40px;   
@@ -91,13 +83,6 @@
       color: #d93025;
     }
 
-    /* Animations */
-    @keyframes pulse-blue {
-      0% { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.7); }
-      70% { box-shadow: 0 0 0 15px rgba(66, 133, 244, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0); }
-    }
-
     @keyframes pulse-red {
       0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); }
       70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
@@ -122,105 +107,156 @@
   </df-messenger>
 
   <button id="mute-btn" title="Toggle Sound Response">🔊</button>
-  <button id="voice-trigger-btn" title="Start/Stop Wake Word Detection">🎙️</button>
+  <button id="voice-trigger-btn" title="Speak">🎙️</button>
 
   <script>
     const dfMessenger = document.querySelector('df-messenger');
     const micBtn = document.getElementById('voice-trigger-btn');
     const muteBtn = document.getElementById('mute-btn');
+    
+    let isRecording = false; // Tracks if mic is currently on
     let isMuted = false;
 
-    // Force voices to load
+    // Force voice load
     window.speechSynthesis.getVoices();
 
-    // --- 1. SAFE RESPONSE HANDLING ---
+    // ---------------------------------------------------------
+    // 1. SAFE RESPONSE HANDLING (FIX FOR "UNDEFINED")
+    // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
-        console.log("✅ Event Triggered");
-        
-        // 1. Inspect the ENTIRE detail object to find where data is hiding
-        console.log("Full Event Detail:", event.detail);
+        // Log the full structure so we can see what's happening
+        console.log("✅ Event Received. Detail Object:", event.detail);
 
-        // 2. SAFETY CHECK: Find the correct data path
-        let data = null;
-        if (event.detail.response) {
-            data = event.detail.response; // Standard Path
-        } else if (event.detail.queryResult) {
-            data = event.detail; // Alternative Path (Data is at top level)
-        } else if (event.detail.data) {
-            data = event.detail.data; // Alternative Path 2
+        // ATTEMPT 1: Look for queryResult in standard 'response' object
+        let queryResult = event.detail.response ? event.detail.response.queryResult : null;
+
+        // ATTEMPT 2: Look for queryResult directly in 'detail' (Fix for your error)
+        if (!queryResult && event.detail.queryResult) {
+            queryResult = event.detail.queryResult;
         }
 
-        // If we still can't find data, stop here to prevent crash
-        if (!data) {
-            console.error("❌ Could not find 'response' or 'queryResult' in event.detail");
+        // If still nothing, stop to prevent crash
+        if (!queryResult) {
+            console.warn("⚠️ Could not find 'queryResult' in this event. Skipping.");
             return;
         }
 
-        // 3. Extract Text (Try both ES and CX structures on the found data)
+        // --- EXTRACT TEXT ---
         let botText = "";
-        const queryResult = data.queryResult;
-
-        if (queryResult) {
-             if (queryResult.fulfillmentText) {
-                // Dialogflow ES
-                botText = queryResult.fulfillmentText;
-                console.log("Mode: Dialogflow ES");
-            } else if (queryResult.responseMessages) {
-                // Dialogflow CX
-                console.log("Mode: Dialogflow CX");
-                const textMsg = queryResult.responseMessages.find(msg => msg.text);
-                if (textMsg && textMsg.text.text.length > 0) {
-                    botText = textMsg.text.text[0];
-                }
+        
+        // Check for Dialogflow ES text
+        if (queryResult.fulfillmentText) {
+            botText = queryResult.fulfillmentText;
+        } 
+        // Check for Dialogflow CX text
+        else if (queryResult.responseMessages) {
+            const textMsg = queryResult.responseMessages.find(msg => msg.text);
+            if (textMsg && textMsg.text.text.length > 0) {
+                botText = textMsg.text.text[0];
             }
         }
 
-        console.log("🗣️ Bot Text to Speak:", botText);
+        console.log("🗣️ Bot Text:", botText);
 
-        // 4. Speak
+        // Speak if not muted
         if (botText && !isMuted) {
             speakText(botText);
+        }
+
+        // --- PLAY AUDIO PAYLOAD ---
+        const messages = queryResult.fulfillmentMessages || queryResult.responseMessages;
+        if (messages && !isMuted) {
+            const payloadMsg = messages.find(msg => msg.payload && msg.payload.audioUrl);
+            if (payloadMsg) {
+                const audio = new Audio(payloadMsg.payload.audioUrl);
+                audio.play().catch(e => console.error("Audio error:", e));
+            }
         }
     });
 
     function speakText(text) {
-        window.speechSynthesis.cancel(); 
+        window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         window.speechSynthesis.speak(utterance);
     }
 
-    // --- 2. MUTE BUTTON ---
+    // ---------------------------------------------------------
+    // 2. MUTE TOGGLE
+    // ---------------------------------------------------------
     muteBtn.addEventListener('click', () => {
         isMuted = !isMuted;
-        muteBtn.textContent = isMuted ? "🔇" : "🔊";
-        muteBtn.classList.toggle('muted', isMuted);
-        if (isMuted) window.speechSynthesis.cancel();
+        if (isMuted) {
+            muteBtn.textContent = "🔇";
+            muteBtn.classList.add('muted');
+            window.speechSynthesis.cancel();
+        } else {
+            muteBtn.textContent = "🔊";
+            muteBtn.classList.remove('muted');
+        }
     });
 
-    // --- 3. SPEECH RECOGNITION ---
+    // ---------------------------------------------------------
+    // 3. SPEECH RECOGNITION (FIX FOR "ALREADY STARTED" CRASH)
+    // ---------------------------------------------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
       recognition.lang = 'en-US';
+      recognition.interimResults = false;
 
+      // Handle Mic Click
       micBtn.addEventListener('click', () => {
-          dfMessenger.setAttribute('expand', 'true');
-          recognition.start();
-          micBtn.style.backgroundColor = "red"; 
+        if (isRecording) {
+            // If already recording, STOP it.
+            recognition.stop();
+        } else {
+            // If NOT recording, START it.
+            try {
+                dfMessenger.setAttribute('expand', 'true');
+                recognition.start();
+            } catch (err) {
+                // If the browser thinks it's already started, this catches the crash
+                console.warn("Mic was already active. Resetting...", err);
+                recognition.stop();
+            }
+        }
       });
 
-      recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        console.log("User said:", transcript);
-        dfMessenger.renderCustomText(transcript, true);
-        dfMessenger.sendRequest("query", transcript);
+      // On Start
+      recognition.onstart = () => {
+        isRecording = true;
+        micBtn.classList.add('recording');
+        console.log("Mic started");
       };
 
-      recognition.onend = () => { 
-          micBtn.style.backgroundColor = "#4285F4"; 
+      // On End
+      recognition.onend = () => {
+        isRecording = false;
+        micBtn.classList.remove('recording');
+        console.log("Mic stopped");
       };
+
+      // On Result
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        console.log("User said: ", transcript);
+
+        if (transcript) {
+          dfMessenger.renderCustomText(transcript, true);
+          dfMessenger.sendRequest("query", transcript);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Speech error", event.error);
+        isRecording = false;
+        micBtn.classList.remove('recording');
+      };
+    } else {
+        console.error("Browser does not support Web Speech API");
+        micBtn.style.display = "none";
     }
   </script>
 </body>

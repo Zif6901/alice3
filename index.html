@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Force Send)</title>
+  <title>Alice Agent (Stability Check)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -148,21 +148,23 @@
     
     // --- SETTINGS ---
     const WAKE_WORD = "alice";
-    // This is the "Stopwatch" - 1500ms (1.5s) after you stop talking, it sends.
-    const FORCE_SEND_DELAY = 1500; 
+    // 1.2 seconds of stable text = SEND
+    const STABILITY_DELAY = 1200; 
     
     let isMicActive = false;
     let isSending = false; 
     let isMuted = false;
     let availableVoices = [];
+    
     let commandTimer = null; 
+    let lastTranscript = "";
 
     window.speechSynthesis.onvoiceschanged = () => {
         availableVoices = window.speechSynthesis.getVoices();
     };
 
     // ---------------------------------------------------------
-    // 1. AGGRESSIVE AUTO-SEND LOGIC
+    // 1. STABILITY-BASED LOGIC
     // ---------------------------------------------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -187,6 +189,7 @@
       function startMic() {
           isMicActive = true;
           isSending = false;
+          lastTranscript = "";
           transcriptBox.style.display = "block";
           transcriptBox.innerText = "Waiting for 'Alice'...";
           
@@ -205,34 +208,39 @@
 
       // --- RESULT HANDLER ---
       recognition.onresult = (event) => {
-        // If we are already sending, ignore everything
-        if (isSending) return;
-
-        // Reset the "Force Send" timer every time we hear a new word
-        clearTimeout(commandTimer);
+        if (isSending) return; 
 
         const results = event.results;
         const latestResult = results[results.length - 1];
         const transcript = latestResult[0].transcript.toLowerCase().trim();
 
+        // **KEY FIX: If text hasn't changed, DO NOT RESET TIMER**
+        // This ignores background noise "jitter"
+        if (transcript === lastTranscript) {
+            return;
+        }
+        lastTranscript = transcript;
+        
+        // Reset Timer (We have new words)
+        clearTimeout(commandTimer);
+
         // 1. Check for Wake Word
         if (transcript.includes(WAKE_WORD)) {
             
-            updateButtonState("hearing"); // Turn Red immediately
+            updateButtonState("hearing"); // Red
 
             // 2. Extract Command
             const parts = transcript.split(WAKE_WORD);
             const command = parts[parts.length - 1].trim();
 
             if (command.length > 1) {
-                transcriptBox.innerText = `Command: "${command}"...`;
+                transcriptBox.innerText = `Command: "${command}"... (Sending soon)`;
 
-                // 3. START THE COUNTDOWN
-                // If this timer finishes, we SEND. No matter what.
+                // 3. START STABILITY TIMER
                 commandTimer = setTimeout(() => {
-                    console.log("⏰ Timer Expired. Forcing Send.");
+                    console.log("⏰ Stability Reached. Sending.");
                     executeCommand(command);
-                }, FORCE_SEND_DELAY);
+                }, STABILITY_DELAY);
             }
         } else {
              transcriptBox.innerText = `Heard: "${transcript}"`;
@@ -241,9 +249,9 @@
 
       function executeCommand(text) {
           if (isSending) return; 
-          isSending = true; // LOCK IT DOWN
+          isSending = true; 
 
-          console.log("🚀 FORCE SENDING:", text);
+          console.log("🚀 SENDING:", text);
           transcriptBox.innerText = `Sent: "${text}"`;
           
           // 1. Send to Dialogflow
@@ -251,20 +259,22 @@
           dfMessenger.setAttribute('expand', 'true');
           dfMessenger.sendRequest("query", text);
 
-          // 2. STOP MIC (This flushes the browser's buffer)
+          // 2. FORCE STOP (Flush buffer)
           recognition.stop(); 
       }
 
       // --- AUTO-RESTART LOOP ---
       recognition.onend = () => {
           if (isMicActive) {
-              console.log("🔄 Loop Reset...");
+              console.log("🔄 Reset...");
               
               setTimeout(() => {
-                  isSending = false; // Unlock
+                  isSending = false;
+                  lastTranscript = "";
+                  
                   try { 
                       recognition.start(); 
-                      updateButtonState("armed"); // Back to Green
+                      updateButtonState("armed"); 
                       transcriptBox.innerText = "Waiting for 'Alice'...";
                   } catch(e) {}
               }, 200); 
@@ -348,10 +358,6 @@
   </script>
 </body>
 </html>
-
-
-
-
 
 
 

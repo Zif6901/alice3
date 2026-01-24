@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Robust Wake Word)</title>
+  <title>Alice Agent (Conversation Mode)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -46,13 +46,13 @@
       transform: scale(1.1);
     }
 
-    /* STATE: ARMED (Green) */
+    /* STATE: ARMED (Green) - Passive */
     #voice-trigger-btn.armed {
       background-color: #34A853 !important;
       animation: pulse-green 2s infinite;
     }
 
-    /* STATE: HEARING COMMAND (Red) */
+    /* STATE: HEARING / ACTIVE CONVERSATION (Red) */
     #voice-trigger-btn.hearing {
       background-color: #EA4335 !important;
       box-shadow: 0 0 15px #EA4335;
@@ -154,12 +154,17 @@
     const transcriptBox = document.getElementById('live-transcript');
     
     // --- SETTINGS ---
-    // Expanded list of "sounds-like" words to trigger the wake state
+    // Fuzzy match list
     const WAKE_VARIANTS = [
-      "alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas", "palace"
+      "alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"
     ];
+
+    // EXIT COMMANDS (to manually stop conversation mode)
+    const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
     
+    // Delays (ms)
     const STABILITY_DELAY = 1200; 
+    const CONVERSATION_TIMEOUT_MS = 20000; // 20 Seconds of "Hot Mic"
     
     let isMicActive = false;
     let isSending = false; 
@@ -167,9 +172,10 @@
     let availableVoices = [];
     
     let commandTimer = null; 
+    let conversationTimeoutTimer = null; // Tracks the 20s window
     let lastTranscript = "";
     
-    // STATE: Did we hear "Alice" (or similar) recently?
+    // STATE: "True" means we are in active conversation mode
     let wakeWordDetected = false;
 
     window.speechSynthesis.onvoiceschanged = () => {
@@ -214,6 +220,7 @@
 
       function stopMic() {
           isMicActive = false;
+          clearTimeout(conversationTimeoutTimer);
           transcriptBox.style.display = "none";
           recognition.stop();
           updateButtonState("idle"); 
@@ -227,9 +234,8 @@
         const results = event.results;
         const latestResult = results[results.length - 1];
         let transcript = latestResult[0].transcript.toLowerCase().trim();
-
-        // 1. Filter out punctuation to make matching easier
-        // This turns "Alice?" or "Alice." into "alice"
+        
+        // Remove simple punctuation for easier matching
         const cleanTranscript = transcript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
 
         if (transcript === lastTranscript) return;
@@ -237,44 +243,56 @@
         
         clearTimeout(commandTimer);
 
-        // 2. CHECK FOR WAKE WORD (Fuzzy Match)
-        // Check if any variant is in the clean text
-        const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
-        
-        if (detectedVariant) {
-            wakeWordDetected = true;
-            console.log("Wake word trigger:", detectedVariant);
+        // 1. CHECK FOR WAKE WORD (Only if not already in conversation)
+        if (!wakeWordDetected) {
+            const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
+            if (detectedVariant) {
+                wakeWordDetected = true;
+                console.log("Wake detected:", detectedVariant);
+                startConversationTimer(); // Start the 20s countdown
+            }
         }
 
-        // 3. EXECUTE LOGIC
+        // 2. PROCESS COMMANDS (If active)
         if (wakeWordDetected) {
             updateButtonState("hearing"); // Red
             
-            // Remove the trigger word from the command if it exists in this chunk
-            // (e.g. "Alex help me" -> "help me")
+            // Refresher: Every time we hear speech, extend the timeout
+            startConversationTimer();
+
+            // Extract Command
+            // If we just said "Alice", strip it out. 
+            // If we are deep in conversation (no "Alice" spoken), take the whole text.
             let command = transcript;
             
+            // Check if this specific chunk contains a wake word to strip
+            const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
             if (detectedVariant) {
-                // Split by the specific variant heard
                 const parts = transcript.split(new RegExp(detectedVariant, 'i'));
                 command = parts[parts.length - 1].trim();
             }
 
-            // Clean leading non-alphanumeric chars
+            // Cleanup
             command = command.replace(/^[^a-zA-Z0-9]+/, '');
 
             if (command.length > 1) {
                 transcriptBox.innerText = `Command: "${command}"...`;
 
-                // Start Stability Timer
+                // Check for manual exit words
+                if (EXIT_COMMANDS.includes(command)) {
+                     endConversationMode("User ended session.");
+                     return;
+                }
+
+                // Buffer for stability
                 commandTimer = setTimeout(() => {
                     executeCommand(command);
                 }, STABILITY_DELAY);
             } else {
-                transcriptBox.innerText = `Listening... (Trigger: '${detectedVariant || "Alice"}')`;
+                transcriptBox.innerText = "Listening (Conversation Active)...";
             }
         } else {
-             // Show user what we are hearing to help debug
+             // Passive Mode
              transcriptBox.innerText = `Heard: "${transcript}"`;
         }
       };
@@ -289,21 +307,47 @@
           dfMessenger.setAttribute('expand', 'true');
           dfMessenger.renderCustomText(text, true);
           dfMessenger.sendRequest("query", text);
-
-          wakeWordDetected = false; 
+          
+          // CRITICAL CHANGE: We do NOT set wakeWordDetected = false here.
+          // We keep it true to allow follow-up questions.
+          
+          // We do stop recognition momentarily to flush the buffer, 
+          // but the onend handler will restart it, and wakeWordDetected remains true.
           recognition.stop(); 
+      }
+
+      // --- CONVERSATION TIMER ---
+      function startConversationTimer() {
+          clearTimeout(conversationTimeoutTimer);
+          conversationTimeoutTimer = setTimeout(() => {
+              endConversationMode("Timeout (20s silence)");
+          }, CONVERSATION_TIMEOUT_MS);
+      }
+
+      function endConversationMode(reason) {
+          console.log("Conversation Ended:", reason);
+          wakeWordDetected = false;
+          updateButtonState("armed"); // Back to Green
+          transcriptBox.innerText = "Waiting for 'Alice'...";
       }
 
       // --- AUTO-RESTART LOOP ---
       recognition.onend = () => {
           if (isMicActive) {
-              console.log("🔄 Resetting Mic...");
+              console.log("🔄 Buffer Reset...");
               setTimeout(() => {
                   isSending = false;
                   lastTranscript = "";
+                  
                   try { 
                       recognition.start(); 
-                      updateButtonState("armed"); 
+                      // Restore visual state based on mode
+                      if (wakeWordDetected) {
+                          updateButtonState("hearing"); // Keep Red
+                          transcriptBox.innerText = "Listening (Conversation Active)...";
+                      } else {
+                          updateButtonState("armed"); // Green
+                      }
                   } catch(e) {}
               }, 200); 
           } else {
@@ -334,12 +378,10 @@
     // --- RESPONSE HANDLER ---
     window.addEventListener('df-response-received', (event) => {
         let botText = "";
-        
         if (event.detail.messages) {
             const msg = event.detail.messages.find(m => m.type === 'text');
             if (msg) botText = msg.text;
         }
-        
         if (!botText && event.detail.raw && event.detail.raw.queryResult) {
             const qr = event.detail.raw.queryResult;
             if (qr.responseMessages) {
@@ -349,9 +391,7 @@
                 botText = qr.fulfillmentText;
             }
         }
-
         if (botText && !isMuted) speakText(botText);
-
         if (event.detail.raw && event.detail.raw.queryResult) {
             const msgs = event.detail.raw.queryResult.responseMessages || event.detail.raw.queryResult.fulfillmentMessages;
             if (msgs) {
@@ -382,6 +422,7 @@
   </script>
 </body>
 </html>
+
 
 
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Stability Check)</title>
+  <title>Alice Agent (Fixed Stability)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -158,6 +158,9 @@
     
     let commandTimer = null; 
     let lastTranscript = "";
+    
+    // STATE: Did we hear "Alice" recently?
+    let wakeWordDetected = false;
 
     window.speechSynthesis.onvoiceschanged = () => {
         availableVoices = window.speechSynthesis.getVoices();
@@ -176,6 +179,7 @@
 
       // --- CLICK HANDLER ---
       micBtn.addEventListener('click', () => {
+        // Unlock audio context on mobile
         const unlock = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(unlock);
 
@@ -189,6 +193,7 @@
       function startMic() {
           isMicActive = true;
           isSending = false;
+          wakeWordDetected = false; 
           lastTranscript = "";
           transcriptBox.style.display = "block";
           transcriptBox.innerText = "Waiting for 'Alice'...";
@@ -211,11 +216,11 @@
         if (isSending) return; 
 
         const results = event.results;
+        // Always grab the very last chunk heard
         const latestResult = results[results.length - 1];
         const transcript = latestResult[0].transcript.toLowerCase().trim();
 
-        // **KEY FIX: If text hasn't changed, DO NOT RESET TIMER**
-        // This ignores background noise "jitter"
+        // Jitter check: If text hasn't changed, ignore
         if (transcript === lastTranscript) {
             return;
         }
@@ -224,14 +229,29 @@
         // Reset Timer (We have new words)
         clearTimeout(commandTimer);
 
-        // 1. Check for Wake Word
+        // CHECK 1: Is the Wake Word here?
         if (transcript.includes(WAKE_WORD)) {
-            
-            updateButtonState("hearing"); // Red
+            wakeWordDetected = true;
+        }
 
-            // 2. Extract Command
-            const parts = transcript.split(WAKE_WORD);
-            const command = parts[parts.length - 1].trim();
+        // CHECK 2: Should we listen for a command?
+        // (Either we just heard "Alice", or we heard it in a previous pause-chunk)
+        if (wakeWordDetected) {
+            updateButtonState("hearing"); // Red
+            
+            // Extract Command:
+            // If "Alice" is in this specific chunk, strip it. 
+            // If not (e.g., "Alice" was previous chunk), take the whole text.
+            let command = "";
+            if (transcript.includes(WAKE_WORD)) {
+                const parts = transcript.split(WAKE_WORD);
+                command = parts[parts.length - 1].trim();
+            } else {
+                command = transcript;
+            }
+
+            // Clean leading punctuation (e.g. ", hello")
+            command = command.replace(/^[^a-zA-Z0-9]+/, '');
 
             if (command.length > 1) {
                 transcriptBox.innerText = `Command: "${command}"... (Sending soon)`;
@@ -241,8 +261,11 @@
                     console.log("⏰ Stability Reached. Sending.");
                     executeCommand(command);
                 }, STABILITY_DELAY);
+            } else {
+                transcriptBox.innerText = "Listening for command...";
             }
         } else {
+             // Just noise or conversation not addressing Alice
              transcriptBox.innerText = `Heard: "${transcript}"`;
         }
       };
@@ -254,28 +277,34 @@
           console.log("🚀 SENDING:", text);
           transcriptBox.innerText = `Sent: "${text}"`;
           
-          // 1. Send to Dialogflow
-          dfMessenger.renderCustomText(text, true);
+          // 1. FORCE UI OPEN so the user sees the text
           dfMessenger.setAttribute('expand', 'true');
+
+          // 2. Send to Dialogflow
+          // renderCustomText displays the user bubble
+          dfMessenger.renderCustomText(text, true);
+          // sendRequest actually queries the LLM/Agent
           dfMessenger.sendRequest("query", text);
 
-          // 2. FORCE STOP (Flush buffer)
+          // 3. Reset Logic
+          wakeWordDetected = false; 
           recognition.stop(); 
       }
 
       // --- AUTO-RESTART LOOP ---
       recognition.onend = () => {
           if (isMicActive) {
-              console.log("🔄 Reset...");
-              
+              console.log("🔄 Resetting Mic...");
               setTimeout(() => {
                   isSending = false;
                   lastTranscript = "";
+                  // Note: We do NOT reset wakeWordDetected here. 
+                  // If they said "Alice" then the mic timed out, we still want to listen.
+                  // However, if isSending was true, executeCommand already reset it.
                   
                   try { 
                       recognition.start(); 
                       updateButtonState("armed"); 
-                      transcriptBox.innerText = "Waiting for 'Alice'...";
                   } catch(e) {}
               }, 200); 
           } else {
@@ -309,20 +338,26 @@
     window.addEventListener('df-response-received', (event) => {
         let botText = "";
         
+        // 1. Try standard text response
         if (event.detail.messages) {
             const msg = event.detail.messages.find(m => m.type === 'text');
             if (msg) botText = msg.text;
         }
+        
+        // 2. Try Fallback / Fulfillment text (common in GenAI agents)
         if (!botText && event.detail.raw && event.detail.raw.queryResult) {
             const qr = event.detail.raw.queryResult;
             if (qr.responseMessages) {
                 const txt = qr.responseMessages.find(m => m.text);
                 if (txt) botText = txt.text.text[0];
+            } else if (qr.fulfillmentText) {
+                botText = qr.fulfillmentText;
             }
         }
 
         if (botText && !isMuted) speakText(botText);
 
+        // 3. Handle Audio responses if present
         if (event.detail.raw && event.detail.raw.queryResult) {
             const msgs = event.detail.raw.queryResult.responseMessages || event.detail.raw.queryResult.fulfillmentMessages;
             if (msgs) {
@@ -338,9 +373,9 @@
         
         if (availableVoices.length === 0) availableVoices = window.speechSynthesis.getVoices();
         
-        let v = availableVoices.find(v => v.name.includes("Natural") && v.name.includes("English"));
-        if (!v) v = availableVoices.find(v => v.name.includes("Google") && v.name.includes("English"));
-        if (!v) v = availableVoices.find(v => v.name.includes("Zira"));
+        // Try to find a good Google Voice, otherwise fallback
+        let v = availableVoices.find(v => v.name.includes("Google") && v.name.includes("English"));
+        if (!v) v = availableVoices.find(v => v.name.includes("Natural") && v.name.includes("English"));
         
         if (v) utterance.voice = v;
         utterance.rate = 1.0; 
@@ -358,6 +393,7 @@
   </script>
 </body>
 </html>
+
 
 
 

@@ -159,7 +159,161 @@
             }
         }
 
-        if (bot
+        if (botText && !isMuted) speakText(botText);
+    });
+
+    // ---------------------------------------------------------
+    // 2. NATURAL VOICE SELECTOR
+    // ---------------------------------------------------------
+    function speakText(text) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        
+        if (availableVoices.length === 0) {
+            availableVoices = window.speechSynthesis.getVoices();
+        }
+
+        let selectedVoice = null;
+        selectedVoice = availableVoices.find(v => v.name.includes("Natural") && v.name.includes("English"));
+        if (!selectedVoice) selectedVoice = availableVoices.find(v => v.name.includes("Google") && v.name.includes("English"));
+        if (!selectedVoice) selectedVoice = availableVoices.find(v => v.name.includes("Zira"));
+        if (!selectedVoice) selectedVoice = availableVoices.find(v => v.lang.includes('en-US'));
+
+        if (selectedVoice) utterance.voice = selectedVoice;
+        utterance.rate = 1.0; 
+        utterance.pitch = 1.0; 
+
+        window.speechSynthesis.speak(utterance);
+    }
+
+    // ---------------------------------------------------------
+    // 3. STABILIZED WAKE WORD ENGINE
+    // ---------------------------------------------------------
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;  // Keep listening
+      recognition.interimResults = false; 
+      recognition.lang = 'en-US';
+
+      // --- CLICK HANDLER (Start/Stop) ---
+      micBtn.addEventListener('click', () => {
+        
+        // Unlock Audio
+        if (!audioUnlocked) {
+            const utterance = new SpeechSynthesisUtterance('');
+            window.speechSynthesis.speak(utterance);
+            audioUnlocked = true;
+        }
+
+        if (isWakeWordActive) {
+            // STOP
+            isWakeWordActive = false;
+            recognition.stop();
+            // Reset Visuals
+            micBtn.className = ""; // Remove all classes
+            micBtn.style.backgroundColor = "#4285F4"; 
+            console.log("🛑 Wake Word Deactivated");
+        } else {
+            // START
+            isWakeWordActive = true;
+            try {
+                recognition.start();
+            } catch (e) {
+                console.warn("Already started", e);
+            }
+        }
+      });
+
+      // --- ON START (Force GREEN State) ---
+      recognition.onstart = () => {
+        // Only set Green if we are in Wake Word mode
+        if (isWakeWordActive) {
+            micBtn.className = ""; // Clear existing
+            micBtn.classList.add('armed'); // Add Green
+            console.log("🟢 Armed: Listening for 'Alice'...");
+        }
+      };
+
+      // --- RESULT HANDLER ---
+      recognition.onresult = (event) => {
+        const lastIndex = event.results.length - 1;
+        const transcript = event.results[lastIndex][0].transcript;
+        const lowerText = transcript.toLowerCase().trim();
+
+        console.log("Heard:", lowerText);
+
+        if (lowerText.includes(WAKE_WORD)) {
+            console.log("⚡ Wake Word Detected!");
+            
+            // Visual: Switch Green -> Red
+            micBtn.classList.remove('armed');
+            micBtn.classList.add('processing');
+
+            const parts = lowerText.split(WAKE_WORD);
+            const command = parts[parts.length - 1].trim();
+
+            if (command.length > 0) {
+                console.log("Sending Command:", command);
+                dfMessenger.renderCustomText(command, true);
+                dfMessenger.setAttribute('expand', 'true');
+                dfMessenger.sendRequest("query", command);
+            }
+
+            // Visual: Return to Green after 2s
+            setTimeout(() => {
+                if(isWakeWordActive) {
+                    micBtn.classList.remove('processing');
+                    micBtn.classList.add('armed');
+                }
+            }, 2000);
+        }
+      };
+
+      // --- AUTO-RESTART (Keep-Alive) ---
+      recognition.onend = () => {
+        if (isWakeWordActive) {
+            console.log("🔄 Silence detected. Restarting loop...");
+            
+            // Wait 200ms then restart. This prevents "Too Fast" errors.
+            setTimeout(() => {
+                try {
+                    recognition.start();
+                } catch(e) {
+                    console.log("Restart attempted.", e);
+                }
+            }, 200);
+        } else {
+            // Actually stopped
+            micBtn.className = ""; 
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("Speech Error (Ignored):", event.error);
+        // Do not stop the loop on error, onend will handle the restart
+    };
+
+    } else {
+        console.error("Web Speech API not supported");
+        micBtn.style.display = "none";
+    }
+
+    // ---------------------------------------------------------
+    // 4. MUTE TOGGLE
+    // ---------------------------------------------------------
+    muteBtn.addEventListener('click', () => {
+        isMuted = !isMuted;
+        muteBtn.textContent = isMuted ? "🔇" : "🔊";
+        muteBtn.classList.toggle('muted', isMuted);
+        if (isMuted) window.speechSynthesis.cancel();
+    });
+
+  </script>
+</body>
+</html>
+
 
 
 

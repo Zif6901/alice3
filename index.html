@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Debugged)</title>
+  <title>Alice Agent (Universal Fix)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
-    /* --- Widget Styling --- */
+    /* Widget Styling */
     df-messenger {
       z-index: 999;
       position: fixed;
@@ -20,7 +20,7 @@
       right: 16px;
     }
 
-    /* --- Microphone Button --- */
+    /* Microphone Button */
     #voice-trigger-btn {
       position: fixed;
       bottom: 100px; 
@@ -51,7 +51,7 @@
       animation: pulse-red 1.5s infinite;
     }
 
-    /* --- Mute Button --- */
+    /* Mute Button */
     #mute-btn {
       position: fixed;
       bottom: 170px;
@@ -114,41 +114,48 @@
     const micBtn = document.getElementById('voice-trigger-btn');
     const muteBtn = document.getElementById('mute-btn');
     
-    let isRecording = false; // Tracks if mic is currently on
+    let isRecording = false;
     let isMuted = false;
 
-    // Force voice load
+    // Force browser to load voices immediately
     window.speechSynthesis.getVoices();
 
     // ---------------------------------------------------------
-    // 1. SAFE RESPONSE HANDLING (FIX FOR "UNDEFINED")
+    // 1. UNIVERSAL DATA FINDER (Fixes the "Undefined" Error)
     // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
-        // Log the full structure so we can see what's happening
-        console.log("✅ Event Received. Detail Object:", event.detail);
+        // DEBUG: Print the exact structure to console
+        console.log("DEBUG: Event Structure:", JSON.stringify(event.detail, null, 2));
 
-        // ATTEMPT 1: Look for queryResult in standard 'response' object
-        let queryResult = event.detail.response ? event.detail.response.queryResult : null;
-
-        // ATTEMPT 2: Look for queryResult directly in 'detail' (Fix for your error)
-        if (!queryResult && event.detail.queryResult) {
+        // 1. Find the 'queryResult' object, no matter where it is
+        let queryResult = null;
+        
+        // Check Path A: Standard
+        if (event.detail.response && event.detail.response.queryResult) {
+            queryResult = event.detail.response.queryResult;
+        } 
+        // Check Path B: Direct (This is likely what you have)
+        else if (event.detail.queryResult) {
             queryResult = event.detail.queryResult;
         }
+        // Check Path C: Nested Data
+        else if (event.detail.data && event.detail.data.queryResult) {
+            queryResult = event.detail.data.queryResult;
+        }
 
-        // If still nothing, stop to prevent crash
         if (!queryResult) {
-            console.warn("⚠️ Could not find 'queryResult' in this event. Skipping.");
+            console.error("❌ Still could not find queryResult. Check console 'DEBUG' log above.");
             return;
         }
 
-        // --- EXTRACT TEXT ---
+        // 2. Extract Text (Supports both ES and CX)
         let botText = "";
         
-        // Check for Dialogflow ES text
+        // Dialogflow ES Text
         if (queryResult.fulfillmentText) {
             botText = queryResult.fulfillmentText;
         } 
-        // Check for Dialogflow CX text
+        // Dialogflow CX Text
         else if (queryResult.responseMessages) {
             const textMsg = queryResult.responseMessages.find(msg => msg.text);
             if (textMsg && textMsg.text.text.length > 0) {
@@ -156,47 +163,50 @@
             }
         }
 
-        console.log("🗣️ Bot Text:", botText);
+        console.log("🗣️ Text found:", botText);
 
-        // Speak if not muted
+        // 3. Speak
         if (botText && !isMuted) {
             speakText(botText);
         }
 
-        // --- PLAY AUDIO PAYLOAD ---
+        // 4. Play Audio Payload (if present)
         const messages = queryResult.fulfillmentMessages || queryResult.responseMessages;
         if (messages && !isMuted) {
             const payloadMsg = messages.find(msg => msg.payload && msg.payload.audioUrl);
             if (payloadMsg) {
                 const audio = new Audio(payloadMsg.payload.audioUrl);
-                audio.play().catch(e => console.error("Audio error:", e));
+                audio.play().catch(e => console.error("Audio playback error:", e));
             }
         }
     });
 
     function speakText(text) {
         window.speechSynthesis.cancel();
+        
+        // Retry mechanism if voices aren't ready
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length === 0) {
+            setTimeout(() => speakText(text), 100);
+            return;
+        }
+
         const utterance = new SpeechSynthesisUtterance(text);
         window.speechSynthesis.speak(utterance);
     }
 
     // ---------------------------------------------------------
-    // 2. MUTE TOGGLE
+    // 2. MUTE BUTTON
     // ---------------------------------------------------------
     muteBtn.addEventListener('click', () => {
         isMuted = !isMuted;
-        if (isMuted) {
-            muteBtn.textContent = "🔇";
-            muteBtn.classList.add('muted');
-            window.speechSynthesis.cancel();
-        } else {
-            muteBtn.textContent = "🔊";
-            muteBtn.classList.remove('muted');
-        }
+        muteBtn.textContent = isMuted ? "🔇" : "🔊";
+        muteBtn.classList.toggle('muted', isMuted);
+        if (isMuted) window.speechSynthesis.cancel();
     });
 
     // ---------------------------------------------------------
-    // 3. SPEECH RECOGNITION (FIX FOR "ALREADY STARTED" CRASH)
+    // 3. MICROPHONE (Safe Start)
     // ---------------------------------------------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -206,39 +216,31 @@
       recognition.lang = 'en-US';
       recognition.interimResults = false;
 
-      // Handle Mic Click
       micBtn.addEventListener('click', () => {
         if (isRecording) {
-            // If already recording, STOP it.
             recognition.stop();
         } else {
-            // If NOT recording, START it.
+            // Prevent "Already Started" crash
             try {
                 dfMessenger.setAttribute('expand', 'true');
                 recognition.start();
-            } catch (err) {
-                // If the browser thinks it's already started, this catches the crash
-                console.warn("Mic was already active. Resetting...", err);
+            } catch (e) {
+                console.warn("Mic reset needed", e);
                 recognition.stop();
             }
         }
       });
 
-      // On Start
       recognition.onstart = () => {
         isRecording = true;
         micBtn.classList.add('recording');
-        console.log("Mic started");
       };
 
-      // On End
       recognition.onend = () => {
         isRecording = false;
         micBtn.classList.remove('recording');
-        console.log("Mic stopped");
       };
 
-      // On Result
       recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         console.log("User said: ", transcript);
@@ -248,19 +250,14 @@
           dfMessenger.sendRequest("query", transcript);
         }
       };
-
-      recognition.onerror = (event) => {
-        console.error("Speech error", event.error);
-        isRecording = false;
-        micBtn.classList.remove('recording');
-      };
     } else {
-        console.error("Browser does not support Web Speech API");
+        console.error("Web Speech API not supported");
         micBtn.style.display = "none";
     }
   </script>
 </body>
 </html>
+
 
 
 

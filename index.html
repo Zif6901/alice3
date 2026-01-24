@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Bottom Right Layout)</title>
+  <title>Alice Agent (Natural Voice Priority)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -20,11 +20,11 @@
       right: 16px;
     }
 
-    /* Microphone Button - Moved to bottom right */
+    /* Microphone Button - Bottom Right */
     #voice-trigger-btn {
       position: fixed;
-      bottom: 20px;       /* Aligned vertically with chat bubble */
-      right: 100px;       /* Placed to the left of the chat bubble */
+      bottom: 20px;       
+      right: 100px;       
       z-index: 1000;
       width: 60px;
       height: 60px;
@@ -51,11 +51,11 @@
       animation: pulse-red 1.5s infinite;
     }
 
-    /* Mute Button - Moved to left of microphone */
+    /* Mute Button - Left of Mic */
     #mute-btn {
       position: fixed;
-      bottom: 25px;       /* Centered vertically relative to the mic */
-      right: 170px;       /* Placed to the left of the mic button */
+      bottom: 25px;       
+      right: 170px;       
       z-index: 1000;
       width: 40px;   
       height: 40px;
@@ -117,14 +117,13 @@
     let isRecording = false;
     let isMuted = false;
     let audioUnlocked = false; 
-
-    // Variable to hold the voices
     let availableVoices = [];
 
     // Load voices immediately
     window.speechSynthesis.onvoiceschanged = () => {
         availableVoices = window.speechSynthesis.getVoices();
-        console.log(`Voices loaded: ${availableVoices.length}`);
+        // DEBUG: Uncomment to see all voice names in your console
+        // availableVoices.forEach(v => console.log(v.name));
     };
 
     // ---------------------------------------------------------
@@ -132,18 +131,15 @@
     // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
         console.log("✅ Response Received");
-
         let botText = "";
 
-        // PRIORITY 1: Check 'messages' array
+        // Check 'messages' array
         if (event.detail.messages && event.detail.messages.length > 0) {
             const msg = event.detail.messages.find(m => m.type === 'text');
-            if (msg && msg.text) {
-                botText = msg.text;
-            }
+            if (msg && msg.text) botText = msg.text;
         }
         
-        // PRIORITY 2: Check 'raw' structure
+        // Check 'raw' structure
         if (!botText && event.detail.raw && event.detail.raw.queryResult) {
             const qr = event.detail.raw.queryResult;
             if (qr.responseMessages) {
@@ -154,12 +150,10 @@
             }
         }
 
-        // --- SPEAK ---
-        if (botText && !isMuted) {
-            speakText(botText);
-        }
+        // Speak
+        if (botText && !isMuted) speakText(botText);
 
-        // --- AUDIO PAYLOAD ---
+        // Audio Payload
         if (event.detail.raw && event.detail.raw.queryResult) {
              const qr = event.detail.raw.queryResult;
              const messages = qr.responseMessages || qr.fulfillmentMessages;
@@ -174,29 +168,43 @@
     });
 
     // ---------------------------------------------------------
-    // 2. MICROSOFT ZIRA VOICE FUNCTION
+    // 2. "NATURAL" VOICE SELECTOR
     // ---------------------------------------------------------
     function speakText(text) {
         window.speechSynthesis.cancel();
-
         const utterance = new SpeechSynthesisUtterance(text);
         
         if (availableVoices.length === 0) {
             availableVoices = window.speechSynthesis.getVoices();
         }
 
-        // Find Microsoft Zira
-        const ziraVoice = availableVoices.find(v => v.name.includes("Zira"));
+        // --- SMART VOICE SELECTION ---
+        let selectedVoice = null;
+
+        // 1. Look for "Natural" (Edge High Quality)
+        selectedVoice = availableVoices.find(v => v.name.includes("Natural") && v.name.includes("English"));
         
-        if (ziraVoice) {
-            utterance.voice = ziraVoice;
-            console.log("🔊 Using Voice: Microsoft Zira");
-        } else {
-            console.warn("⚠️ Microsoft Zira not found. Falling back to default English.");
-            const fallbackVoice = availableVoices.find(v => v.lang.includes('en-US'));
-            if (fallbackVoice) utterance.voice = fallbackVoice;
+        // 2. Look for "Google" (Chrome High Quality)
+        if (!selectedVoice) {
+             selectedVoice = availableVoices.find(v => v.name.includes("Google") && v.name.includes("English"));
         }
 
+        // 3. Look for "Zira" (Windows Standard)
+        if (!selectedVoice) {
+             selectedVoice = availableVoices.find(v => v.name.includes("Zira"));
+        }
+
+        // 4. Fallback
+        if (!selectedVoice) {
+            selectedVoice = availableVoices.find(v => v.lang.includes('en-US'));
+        }
+
+        if (selectedVoice) {
+            utterance.voice = selectedVoice;
+            console.log("🔊 Speaking with:", selectedVoice.name);
+        }
+
+        // Tweak Pitch/Rate for smoother delivery
         utterance.rate = 1.0; 
         utterance.pitch = 1.0; 
 
@@ -215,7 +223,6 @@
       recognition.interimResults = false;
 
       micBtn.addEventListener('click', () => {
-        // Unlock browser audio
         if (!audioUnlocked) {
             const utterance = new SpeechSynthesisUtterance('');
             window.speechSynthesis.speak(utterance);
@@ -272,4 +279,5 @@
   </script>
 </body>
 </html>
+
 

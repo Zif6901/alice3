@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Natural Voice Priority)</title>
+  <title>Alice Agent (Side-by-Side Layout)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
-    /* Widget Styling */
+    /* Widget Styling (Bottom Right) */
     df-messenger {
       z-index: 999;
       position: fixed;
@@ -20,19 +20,19 @@
       right: 16px;
     }
 
-    /* Microphone Button - Bottom Right */
+    /* Microphone Button (Placed to the left of the Chat Bubble) */
     #voice-trigger-btn {
       position: fixed;
-      bottom: 20px;       
-      right: 100px;       
+      bottom: 20px;       /* Aligns vertically with the chat bubble */
+      right: 90px;        /* Pushed left to sit next to the bubble */
       z-index: 1000;
-      width: 60px;
-      height: 60px;
+      width: 50px;
+      height: 50px;
       border-radius: 50%;
       border: none;
       background-color: #4285F4;
       color: white;
-      font-size: 28px;
+      font-size: 24px;
       cursor: pointer;
       box-shadow: 0 4px 8px rgba(0,0,0,0.2);
       display: flex;
@@ -51,11 +51,11 @@
       animation: pulse-red 1.5s infinite;
     }
 
-    /* Mute Button - Left of Mic */
+    /* Speaker/Mute Button (Placed to the left of the Microphone) */
     #mute-btn {
       position: fixed;
-      bottom: 25px;       
-      right: 170px;       
+      bottom: 25px;       /* Slightly higher bottom to center it with the larger mic button */
+      right: 150px;       /* Pushed further left to sit next to the mic */
       z-index: 1000;
       width: 40px;   
       height: 40px;
@@ -119,11 +119,9 @@
     let audioUnlocked = false; 
     let availableVoices = [];
 
-    // Load voices immediately
+    // Load voices
     window.speechSynthesis.onvoiceschanged = () => {
         availableVoices = window.speechSynthesis.getVoices();
-        // DEBUG: Uncomment to see all voice names in your console
-        // availableVoices.forEach(v => console.log(v.name));
     };
 
     // ---------------------------------------------------------
@@ -133,13 +131,13 @@
         console.log("✅ Response Received");
         let botText = "";
 
-        // Check 'messages' array
+        // Check 'messages' array (Priority)
         if (event.detail.messages && event.detail.messages.length > 0) {
             const msg = event.detail.messages.find(m => m.type === 'text');
             if (msg && msg.text) botText = msg.text;
         }
         
-        // Check 'raw' structure
+        // Check 'raw' structure (Backup)
         if (!botText && event.detail.raw && event.detail.raw.queryResult) {
             const qr = event.detail.raw.queryResult;
             if (qr.responseMessages) {
@@ -168,7 +166,7 @@
     });
 
     // ---------------------------------------------------------
-    // 2. "NATURAL" VOICE SELECTOR
+    // 2. NATURAL VOICE SELECTOR
     // ---------------------------------------------------------
     function speakText(text) {
         window.speechSynthesis.cancel();
@@ -181,30 +179,28 @@
         // --- SMART VOICE SELECTION ---
         let selectedVoice = null;
 
-        // 1. Look for "Natural" (Edge High Quality)
+        // 1. Natural (Edge)
         selectedVoice = availableVoices.find(v => v.name.includes("Natural") && v.name.includes("English"));
         
-        // 2. Look for "Google" (Chrome High Quality)
+        // 2. Google (Chrome)
         if (!selectedVoice) {
              selectedVoice = availableVoices.find(v => v.name.includes("Google") && v.name.includes("English"));
         }
 
-        // 3. Look for "Zira" (Windows Standard)
+        // 3. Zira (Windows)
         if (!selectedVoice) {
              selectedVoice = availableVoices.find(v => v.name.includes("Zira"));
         }
 
-        // 4. Fallback
+        // 4. Default
         if (!selectedVoice) {
             selectedVoice = availableVoices.find(v => v.lang.includes('en-US'));
         }
 
         if (selectedVoice) {
             utterance.voice = selectedVoice;
-            console.log("🔊 Speaking with:", selectedVoice.name);
         }
 
-        // Tweak Pitch/Rate for smoother delivery
         utterance.rate = 1.0; 
         utterance.pitch = 1.0; 
 
@@ -279,5 +275,6 @@
   </script>
 </body>
 </html>
+
 
 

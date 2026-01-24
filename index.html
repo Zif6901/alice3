@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Final Fix)</title>
+  <title>Alice Agent (Fixed)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -125,26 +125,33 @@
     // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
         
-        // 1. Find the 'queryResult' object
-        // Based on your logs, it is inside 'event.detail.raw.queryResult'
         let queryResult = null;
 
+        // --- PATH FINDING LOGIC ---
+        // 1. Check 'raw' (This matches your logs)
         if (event.detail.raw && event.detail.raw.queryResult) {
             queryResult = event.detail.raw.queryResult;
-        } else if (event.detail.response && event.detail.response.queryResult) {
-             // Fallback for standard structure
+        } 
+        // 2. Check 'response' (Standard fallback)
+        else if (event.detail.response && event.detail.response.queryResult) {
              queryResult = event.detail.response.queryResult;
         }
 
         if (!queryResult) {
-            console.error("❌ Could not find queryResult in 'raw' or 'response'.");
+            console.error("❌ Could not find queryResult. Attempting fallback...");
+            // Fallback: Try to find text directly in 'messages' array if raw failed
+            if (event.detail.messages && event.detail.messages.length > 0) {
+                const simpleText = event.detail.messages[0].text;
+                if (simpleText && !isMuted) speakText(simpleText);
+                return;
+            }
             return;
         }
 
-        // 2. Extract Text
+        // --- TEXT EXTRACTION ---
         let botText = "";
         
-        // Check for Dialogflow CX text (This matches your log structure)
+        // Check for Dialogflow CX text (Matches your log)
         if (queryResult.responseMessages) {
             const textMsg = queryResult.responseMessages.find(msg => msg.text);
             if (textMsg && textMsg.text.text.length > 0) {
@@ -158,12 +165,12 @@
 
         console.log("🗣️ Text found:", botText);
 
-        // 3. Speak
+        // --- SPEAK ---
         if (botText && !isMuted) {
             speakText(botText);
         }
 
-        // 4. Play Audio Payload (if present)
+        // --- PLAY AUDIO PAYLOAD ---
         const messages = queryResult.fulfillmentMessages || queryResult.responseMessages;
         if (messages && !isMuted) {
             const payloadMsg = messages.find(msg => msg.payload && msg.payload.audioUrl);
@@ -249,6 +256,7 @@
   </script>
 </body>
 </html>
+
 
 
 

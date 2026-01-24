@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Universal Fix)</title>
+  <title>Alice Agent (Final Fix)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -121,47 +121,40 @@
     window.speechSynthesis.getVoices();
 
     // ---------------------------------------------------------
-    // 1. UNIVERSAL DATA FINDER (Fixes the "Undefined" Error)
+    // 1. DATA HANDLER (Customized for your 'raw' structure)
     // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
-        // DEBUG: Print the exact structure to console
-        console.log("DEBUG: Event Structure:", JSON.stringify(event.detail, null, 2));
-
-        // 1. Find the 'queryResult' object, no matter where it is
-        let queryResult = null;
         
-        // Check Path A: Standard
-        if (event.detail.response && event.detail.response.queryResult) {
-            queryResult = event.detail.response.queryResult;
-        } 
-        // Check Path B: Direct (This is likely what you have)
-        else if (event.detail.queryResult) {
-            queryResult = event.detail.queryResult;
-        }
-        // Check Path C: Nested Data
-        else if (event.detail.data && event.detail.data.queryResult) {
-            queryResult = event.detail.data.queryResult;
+        // 1. Find the 'queryResult' object
+        // Based on your logs, it is inside 'event.detail.raw.queryResult'
+        let queryResult = null;
+
+        if (event.detail.raw && event.detail.raw.queryResult) {
+            queryResult = event.detail.raw.queryResult;
+        } else if (event.detail.response && event.detail.response.queryResult) {
+             // Fallback for standard structure
+             queryResult = event.detail.response.queryResult;
         }
 
         if (!queryResult) {
-            console.error("❌ Still could not find queryResult. Check console 'DEBUG' log above.");
+            console.error("❌ Could not find queryResult in 'raw' or 'response'.");
             return;
         }
 
-        // 2. Extract Text (Supports both ES and CX)
+        // 2. Extract Text
         let botText = "";
         
-        // Dialogflow ES Text
-        if (queryResult.fulfillmentText) {
-            botText = queryResult.fulfillmentText;
-        } 
-        // Dialogflow CX Text
-        else if (queryResult.responseMessages) {
+        // Check for Dialogflow CX text (This matches your log structure)
+        if (queryResult.responseMessages) {
             const textMsg = queryResult.responseMessages.find(msg => msg.text);
             if (textMsg && textMsg.text.text.length > 0) {
                 botText = textMsg.text.text[0];
             }
         }
+        // Check for Dialogflow ES text (Backup)
+        else if (queryResult.fulfillmentText) {
+            botText = queryResult.fulfillmentText;
+        } 
 
         console.log("🗣️ Text found:", botText);
 
@@ -206,7 +199,7 @@
     });
 
     // ---------------------------------------------------------
-    // 3. MICROPHONE (Safe Start)
+    // 3. MICROPHONE
     // ---------------------------------------------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -220,7 +213,6 @@
         if (isRecording) {
             recognition.stop();
         } else {
-            // Prevent "Already Started" crash
             try {
                 dfMessenger.setAttribute('expand', 'true');
                 recognition.start();
@@ -257,6 +249,7 @@
   </script>
 </body>
 </html>
+
 
 
 

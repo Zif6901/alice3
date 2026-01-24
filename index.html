@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (No Echo)</title>
+  <title>Alice Agent (Audio & Latching Fix)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -46,20 +46,20 @@
       transform: scale(1.1);
     }
 
-    /* STATE: ARMED (Green) */
+    /* STATE: ARMED (Green) - Waiting for "Alice" */
     #voice-trigger-btn.armed {
       background-color: #34A853 !important;
       animation: pulse-green 2s infinite;
     }
 
-    /* STATE: HEARING / ACTIVE (Red) */
+    /* STATE: HEARING / CONVERSATION (Red) - Listening for commands */
     #voice-trigger-btn.hearing {
       background-color: #EA4335 !important;
       box-shadow: 0 0 15px #EA4335;
       animation: pulse-red 1s infinite;
     }
 
-    /* STATE: SPEAKING (Yellow/Orange) - Visual cue that mic is paused */
+    /* STATE: SPEAKING/BUSY (Yellow) - Mic Paused */
     #voice-trigger-btn.speaking {
       background-color: #FBBC05 !important;
       animation: none;
@@ -165,23 +165,24 @@
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
     
     const STABILITY_DELAY = 1200; 
-    const CONVERSATION_TIMEOUT_MS = 20000; 
+    const CONVERSATION_TIMEOUT_MS = 25000; // 25s hot mic
     
     let isMicActive = false;
-    let isSending = false; 
+    let isProcessing = false; // "Sending" or "Speaking"
     let isMuted = false;
-    let isSpeaking = false; // NEW: Prevents Echo
     let availableVoices = [];
     
     let commandTimer = null; 
     let conversationTimeoutTimer = null; 
+    let safetyResetTimer = null; // Watchdog if audio fails
     let lastTranscript = "";
     
     let wakeWordDetected = false;
 
-    window.speechSynthesis.onvoiceschanged = () => {
-        availableVoices = window.speechSynthesis.getVoices();
-    };
+    // Load voices immediately and on change
+    const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices();
 
     // ---------------------------------------------------------
     // 1. SPEECH RECOGNITION LOGIC
@@ -195,6 +196,7 @@
       recognition.lang = 'en-US';
 
       micBtn.addEventListener('click', () => {
+        // MOBILE UNLOCK: Force an empty speak to unlock the engine
         const unlock = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(unlock);
 
@@ -206,255 +208,7 @@
       });
 
       function startMic() {
-          isMicActive = true;
-          isSending = false;
-          // If we are currently speaking, don't actually start recording yet
-          if (isSpeaking) {
-               updateButtonState("speaking");
-               return; 
-          }
 
-          wakeWordDetected = false; 
-          lastTranscript = "";
-          transcriptBox.style.display = "block";
-          transcriptBox.innerText = "Waiting for 'Alice'...";
-          
-          try { recognition.start(); } catch(e) {}
-          updateButtonState("armed"); 
-          console.log("🟢 Mic Started.");
-      }
-
-      function stopMic() {
-          isMicActive = false;
-          clearTimeout(conversationTimeoutTimer);
-          transcriptBox.style.display = "none";
-          recognition.stop();
-          updateButtonState("idle"); 
-          console.log("🛑 Mic Stopped.");
-      }
-
-      recognition.onresult = (event) => {
-        // If system is speaking or sending, ignore all input
-        if (isSending || isSpeaking) return; 
-
-        const results = event.results;
-        const latestResult = results[results.length - 1];
-        let transcript = latestResult[0].transcript.toLowerCase().trim();
-        const cleanTranscript = transcript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-
-        if (transcript === lastTranscript) return;
-        lastTranscript = transcript;
-        
-        clearTimeout(commandTimer);
-
-        // 1. WAKE WORD CHECK
-        if (!wakeWordDetected) {
-            const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
-            if (detectedVariant) {
-                wakeWordDetected = true;
-                startConversationTimer();
-            }
-        }
-
-        // 2. ACTIVE CONVERSATION
-        if (wakeWordDetected) {
-            updateButtonState("hearing");
-            startConversationTimer();
-
-            let command = transcript;
-            const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
-            
-            if (detectedVariant) {
-                const parts = transcript.split(new RegExp(detectedVariant, 'i'));
-                command = parts[parts.length - 1].trim();
-            }
-
-            command = command.replace(/^[^a-zA-Z0-9]+/, '');
-
-            if (command.length > 1) {
-                transcriptBox.innerText = `Command: "${command}"...`;
-
-                if (EXIT_COMMANDS.includes(command)) {
-                     endConversationMode("User ended session.");
-                     return;
-                }
-
-                commandTimer = setTimeout(() => {
-                    executeCommand(command);
-                }, STABILITY_DELAY);
-            } else {
-                transcriptBox.innerText = "Listening...";
-            }
-        } else {
-             transcriptBox.innerText = `Heard: "${transcript}"`;
-        }
-      };
-
-      function executeCommand(text) {
-          if (isSending || isSpeaking) return; 
-          isSending = true; 
-
-          console.log("🚀 SENDING:", text);
-          transcriptBox.innerText = `Sent: "${text}"`;
-          
-          dfMessenger.setAttribute('expand', 'true');
-          dfMessenger.renderCustomText(text, true);
-          dfMessenger.sendRequest("query", text);
-          
-          recognition.stop(); 
-      }
-
-      function startConversationTimer() {
-          clearTimeout(conversationTimeoutTimer);
-          conversationTimeoutTimer = setTimeout(() => {
-              endConversationMode("Timeout");
-          }, CONVERSATION_TIMEOUT_MS);
-      }
-
-      function endConversationMode(reason) {
-          console.log("Conversation Ended:", reason);
-          wakeWordDetected = false;
-          if (isMicActive && !isSpeaking) {
-               updateButtonState("armed"); 
-               transcriptBox.innerText = "Waiting for 'Alice'...";
-          }
-      }
-
-      recognition.onend = () => {
-          // Only restart if mic is active AND we are not currently speaking
-          if (isMicActive && !isSpeaking) {
-              console.log("🔄 Reset...");
-              setTimeout(() => {
-                  isSending = false;
-                  lastTranscript = "";
-                  try { 
-                      recognition.start(); 
-                      if (wakeWordDetected) updateButtonState("hearing");
-                      else updateButtonState("armed");
-                  } catch(e) {}
-              }, 200); 
-          } else if (!isMicActive) {
-              updateButtonState("idle");
-          }
-      };
-
-      recognition.onerror = (event) => {
-          if (event.error === 'not-allowed') stopMic();
-      };
-    } else {
-        alert("Browser not supported.");
-    }
-
-    // --- BUTTON STYLING ---
-    function updateButtonState(state) {
-        micBtn.classList.remove('armed', 'hearing', 'speaking');
-        micBtn.style.backgroundColor = "#4285F4"; 
-        
-        if (state === "armed") micBtn.classList.add('armed');
-        else if (state === "hearing") micBtn.classList.add('hearing');
-        else if (state === "speaking") micBtn.classList.add('speaking');
-    }
-
-    // --- RESPONSE HANDLER ---
-    window.addEventListener('df-response-received', (event) => {
-        let botText = "";
-        
-        if (event.detail.messages) {
-            const msg = event.detail.messages.find(m => m.type === 'text');
-            if (msg) botText = msg.text;
-        }
-        if (!botText && event.detail.raw && event.detail.raw.queryResult) {
-            const qr = event.detail.raw.queryResult;
-            if (qr.responseMessages) {
-                const txt = qr.responseMessages.find(m => m.text);
-                if (txt) botText = txt.text.text[0];
-            } else if (qr.fulfillmentText) {
-                botText = qr.fulfillmentText;
-            }
-        }
-
-        if (botText && !isMuted) speakText(botText);
-        
-        // Handle Audio Payload (custom audio files)
-        if (event.detail.raw && event.detail.raw.queryResult) {
-            const msgs = event.detail.raw.queryResult.responseMessages || event.detail.raw.queryResult.fulfillmentMessages;
-            if (msgs) {
-                const audioMsg = msgs.find(m => m.payload && m.payload.audioUrl);
-                if (audioMsg && !isMuted) {
-                    // Treat audio file same as TTS
-                    playAudioFile(audioMsg.payload.audioUrl);
-                }
-            }
-        }
-    });
-
-    function speakText(text) {
-        window.speechSynthesis.cancel();
-        
-        // 1. PAUSE MIC
-        isSpeaking = true;
-        recognition.stop(); // Stop listening so we don't hear ourselves
-        updateButtonState("speaking"); // Visual cue (Yellow)
-        transcriptBox.innerText = "Alice is speaking...";
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        if (availableVoices.length === 0) availableVoices = window.speechSynthesis.getVoices();
-        let v = availableVoices.find(v => v.name.includes("Google") && v.name.includes("English"));
-        if (!v) v = availableVoices.find(v => v.name.includes("Natural") && v.name.includes("English"));
-        if (v) utterance.voice = v;
-        
-        // 2. RESUME MIC ON END
-        utterance.onend = () => {
-            console.log("🔊 Speech finished.");
-            isSpeaking = false;
-            isSending = false; // Allow new commands
-            
-            // Restart Mic Logic
-            if (isMicActive) {
-                try { recognition.start(); } catch(e) {}
-                
-                // Return to previous state
-                if (wakeWordDetected) {
-                    updateButtonState("hearing");
-                    transcriptBox.innerText = "Listening...";
-                } else {
-                    updateButtonState("armed");
-                    transcriptBox.innerText = "Waiting for 'Alice'...";
-                }
-            }
-        };
-
-        window.speechSynthesis.speak(utterance);
-    }
-
-    function playAudioFile(url) {
-        isSpeaking = true;
-        recognition.stop();
-        updateButtonState("speaking");
-
-        const audio = new Audio(url);
-        audio.onended = () => {
-             isSpeaking = false;
-             isSending = false;
-             if (isMicActive) {
-                try { recognition.start(); } catch(e) {}
-                if (wakeWordDetected) updateButtonState("hearing");
-                else updateButtonState("armed");
-            }
-        };
-        audio.play();
-    }
-
-    muteBtn.addEventListener('click', () => {
-        isMuted = !isMuted;
-        muteBtn.textContent = isMuted ? "🔇" : "🔊";
-        muteBtn.classList.toggle('muted', isMuted);
-        if (isMuted) window.speechSynthesis.cancel();
-    });
-
-  </script>
-</body>
-</html>
 
 
 

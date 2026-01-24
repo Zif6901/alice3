@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Side-by-Side Layout)</title>
+  <title>Alice Agent (Wake Word: "Alice")</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
-    /* Widget Styling (Bottom Right) */
+    /* Widget Styling */
     df-messenger {
       z-index: 999;
       position: fixed;
@@ -20,17 +20,17 @@
       right: 16px;
     }
 
-    /* Microphone Button (Placed to the left of the Chat Bubble) */
+    /* Microphone Button */
     #voice-trigger-btn {
       position: fixed;
-      bottom: 20px;       /* Aligns vertically with the chat bubble */
-      right: 90px;        /* Pushed left to sit next to the bubble */
+      bottom: 20px;       
+      right: 90px;        
       z-index: 1000;
       width: 50px;
       height: 50px;
       border-radius: 50%;
       border: none;
-      background-color: #4285F4;
+      background-color: #4285F4; /* Default Blue */
       color: white;
       font-size: 24px;
       cursor: pointer;
@@ -46,16 +46,23 @@
       transform: scale(1.1);
     }
 
-    #voice-trigger-btn.recording {
-      background-color: #EA4335;
-      animation: pulse-red 1.5s infinite;
+    /* STATE: ARMED (Listening for "Alice") - Green Pulse */
+    #voice-trigger-btn.armed {
+      background-color: #34A853; 
+      animation: pulse-green 2s infinite;
     }
 
-    /* Speaker/Mute Button (Placed to the left of the Microphone) */
+    /* STATE: PROCESSING (Heard "Alice", sending data) - Red Pulse */
+    #voice-trigger-btn.processing {
+      background-color: #EA4335;
+      animation: pulse-red 0.5s infinite;
+    }
+
+    /* Mute Button */
     #mute-btn {
       position: fixed;
-      bottom: 25px;       /* Slightly higher bottom to center it with the larger mic button */
-      right: 150px;       /* Pushed further left to sit next to the mic */
+      bottom: 25px;       
+      right: 150px;       
       z-index: 1000;
       width: 40px;   
       height: 40px;
@@ -83,6 +90,12 @@
       color: #d93025;
     }
 
+    @keyframes pulse-green {
+      0% { box-shadow: 0 0 0 0 rgba(52, 168, 83, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(52, 168, 83, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(52, 168, 83, 0); }
+    }
+
     @keyframes pulse-red {
       0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); }
       70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
@@ -107,19 +120,19 @@
   </df-messenger>
 
   <button id="mute-btn" title="Toggle Sound Response">🔊</button>
-  <button id="voice-trigger-btn" title="Speak">🎙️</button>
+  <button id="voice-trigger-btn" title="Click to Arm 'Alice'">🎙️</button>
 
   <script>
     const dfMessenger = document.querySelector('df-messenger');
     const micBtn = document.getElementById('voice-trigger-btn');
     const muteBtn = document.getElementById('mute-btn');
     
-    let isRecording = false;
+    const WAKE_WORD = "alice";
+    let isWakeWordActive = false; // Is the loop running?
     let isMuted = false;
     let audioUnlocked = false; 
     let availableVoices = [];
 
-    // Load voices
     window.speechSynthesis.onvoiceschanged = () => {
         availableVoices = window.speechSynthesis.getVoices();
     };
@@ -128,16 +141,13 @@
     // 1. RESPONSE HANDLER
     // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
-        console.log("✅ Response Received");
         let botText = "";
 
-        // Check 'messages' array (Priority)
         if (event.detail.messages && event.detail.messages.length > 0) {
             const msg = event.detail.messages.find(m => m.type === 'text');
             if (msg && msg.text) botText = msg.text;
         }
         
-        // Check 'raw' structure (Backup)
         if (!botText && event.detail.raw && event.detail.raw.queryResult) {
             const qr = event.detail.raw.queryResult;
             if (qr.responseMessages) {
@@ -148,21 +158,7 @@
             }
         }
 
-        // Speak
         if (botText && !isMuted) speakText(botText);
-
-        // Audio Payload
-        if (event.detail.raw && event.detail.raw.queryResult) {
-             const qr = event.detail.raw.queryResult;
-             const messages = qr.responseMessages || qr.fulfillmentMessages;
-             if (messages && !isMuted) {
-                const payloadMsg = messages.find(msg => msg.payload && msg.payload.audioUrl);
-                if (payloadMsg) {
-                    const audio = new Audio(payloadMsg.payload.audioUrl);
-                    audio.play().catch(e => console.error("Audio Playback Error:", e));
-                }
-             }
-        }
     });
 
     // ---------------------------------------------------------
@@ -176,31 +172,13 @@
             availableVoices = window.speechSynthesis.getVoices();
         }
 
-        // --- SMART VOICE SELECTION ---
         let selectedVoice = null;
-
-        // 1. Natural (Edge)
         selectedVoice = availableVoices.find(v => v.name.includes("Natural") && v.name.includes("English"));
-        
-        // 2. Google (Chrome)
-        if (!selectedVoice) {
-             selectedVoice = availableVoices.find(v => v.name.includes("Google") && v.name.includes("English"));
-        }
+        if (!selectedVoice) selectedVoice = availableVoices.find(v => v.name.includes("Google") && v.name.includes("English"));
+        if (!selectedVoice) selectedVoice = availableVoices.find(v => v.name.includes("Zira"));
+        if (!selectedVoice) selectedVoice = availableVoices.find(v => v.lang.includes('en-US'));
 
-        // 3. Zira (Windows)
-        if (!selectedVoice) {
-             selectedVoice = availableVoices.find(v => v.name.includes("Zira"));
-        }
-
-        // 4. Default
-        if (!selectedVoice) {
-            selectedVoice = availableVoices.find(v => v.lang.includes('en-US'));
-        }
-
-        if (selectedVoice) {
-            utterance.voice = selectedVoice;
-        }
-
+        if (selectedVoice) utterance.voice = selectedVoice;
         utterance.rate = 1.0; 
         utterance.pitch = 1.0; 
 
@@ -208,55 +186,109 @@
     }
 
     // ---------------------------------------------------------
-    // 3. MICROPHONE & AUDIO UNLOCK
+    // 3. WAKE WORD ENGINE
     // ---------------------------------------------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
+      // Continuous is KEY for wake words
+      recognition.continuous = true;
+      recognition.interimResults = false; 
       recognition.lang = 'en-US';
-      recognition.interimResults = false;
 
+      // --- CLICK HANDLER (Toggle Arm/Disarm) ---
       micBtn.addEventListener('click', () => {
+        // Unlock Audio Context
         if (!audioUnlocked) {
             const utterance = new SpeechSynthesisUtterance('');
             window.speechSynthesis.speak(utterance);
             audioUnlocked = true;
         }
 
-        if (isRecording) {
+        if (isWakeWordActive) {
+            // STOP Listening
+            isWakeWordActive = false;
             recognition.stop();
+            micBtn.classList.remove('armed', 'processing');
+            micBtn.style.backgroundColor = "#4285F4"; // Back to Blue
+            console.log("🛑 Wake Word Deactivated");
         } else {
+            // START Listening Loop
+            isWakeWordActive = true;
             try {
-                dfMessenger.setAttribute('expand', 'true');
                 recognition.start();
+                micBtn.classList.add('armed'); // Pulse Green
+                console.log("🟢 Armed: Listening for 'Alice'...");
             } catch (e) {
-                console.warn("Mic reset needed", e);
-                recognition.stop();
+                console.warn("Already started", e);
             }
         }
       });
 
-      recognition.onstart = () => {
-        isRecording = true;
-        micBtn.classList.add('recording');
-      };
-
-      recognition.onend = () => {
-        isRecording = false;
-        micBtn.classList.remove('recording');
-      };
-
+      // --- RESULT HANDLER ---
       recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        console.log("User said: ", transcript);
+        // Get the latest result
+        const lastIndex = event.results.length - 1;
+        const transcript = event.results[lastIndex][0].transcript;
+        const lowerText = transcript.toLowerCase().trim();
 
-        if (transcript) {
-          dfMessenger.renderCustomText(transcript, true);
-          dfMessenger.sendRequest("query", transcript);
+        console.log("Heard:", lowerText);
+
+        // CHECK FOR WAKE WORD
+        if (lowerText.includes(WAKE_WORD)) {
+            console.log("⚡ Wake Word Detected!");
+            
+            // Visual Cue
+            micBtn.classList.remove('armed');
+            micBtn.classList.add('processing'); // Red Pulse
+
+            // Extract the command (remove "alice" from the start)
+            // e.g. "hey alice tell me a joke" -> "tell me a joke"
+            const parts = lowerText.split(WAKE_WORD);
+            // We take the last part in case they said "alice alice stop"
+            const command = parts[parts.length - 1].trim();
+
+            if (command.length > 0) {
+                console.log("Sending Command:", command);
+                dfMessenger.renderCustomText(command, true);
+                dfMessenger.setAttribute('expand', 'true');
+                dfMessenger.sendRequest("query", command);
+            } else {
+                console.log("Wake word heard, but no command followed.");
+            }
+
+            // Return to Green (Armed) state after 2 seconds
+            setTimeout(() => {
+                if(isWakeWordActive) {
+                    micBtn.classList.remove('processing');
+                    micBtn.classList.add('armed');
+                }
+            }, 2000);
         }
       };
+
+      // --- AUTO-RESTART LOOP ---
+      recognition.onend = () => {
+        if (isWakeWordActive) {
+            console.log("🔄 Loop restarting...");
+            // Browsers often stop listening after silence. We force it back on.
+            try {
+                recognition.start();
+            } catch(e) {
+                // If it fails immediately, wait a split second
+                setTimeout(() => recognition.start(), 500);
+            }
+        } else {
+            micBtn.classList.remove('armed', 'processing');
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Speech Error:", event.error);
+        // "no-speech" errors are common in loops; we just ignore and let onend restart it.
+      };
+
     } else {
         console.error("Web Speech API not supported");
         micBtn.style.display = "none";
@@ -275,6 +307,7 @@
   </script>
 </body>
 </html>
+
 
 
 

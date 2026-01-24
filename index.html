@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Buffer Fix)</title>
+  <title>Alice Agent (Interrupt & Listen)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -46,24 +46,25 @@
       transform: scale(1.1);
     }
 
-    /* STATE: ARMED (Green) - Passive */
+    /* STATE: ARMED (Green) - Waiting for 'Alice' */
     #voice-trigger-btn.armed {
       background-color: #34A853 !important;
       animation: pulse-green 2s infinite;
     }
 
-    /* STATE: HEARING / ACTIVE (Red) - Listening */
+    /* STATE: HEARING / ACTIVE (Red) - Listening for Command */
     #voice-trigger-btn.hearing {
       background-color: #EA4335 !important;
       box-shadow: 0 0 15px #EA4335;
       animation: pulse-red 1s infinite;
     }
 
-    /* STATE: BUSY/SPEAKING (Yellow) - Mic Off */
+    /* STATE: SPEAKING/BUSY (Yellow) - Tap to Interrupt */
     #voice-trigger-btn.speaking {
       background-color: #FBBC05 !important;
       animation: none;
       box-shadow: 0 0 10px #FBBC05;
+      cursor: cell; /* visual cue that you can click to stop */
     }
 
     /* Mute Button */
@@ -164,14 +165,14 @@
     const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
     
-    // Send 1.2s after you stop speaking
+    // Wait time after speech before sending
     const STABILITY_DELAY = 1200; 
     
-    // Keep mic "Red" (Hot) for 25 seconds after a command
+    // Keep conversation open for 25s
     const CONVERSATION_TIMEOUT_MS = 25000; 
     
     let isMicActive = false;
-    let isProcessing = false; // True when sending or speaking
+    let isProcessing = false; // "Processing" = Sending or Speaking
     let isMuted = false;
     let availableVoices = [];
     
@@ -180,8 +181,6 @@
     let safetyResetTimer = null; 
     
     let lastTranscript = "";
-    
-    // STATE: "True" means we are in active conversation (Red Mic)
     let wakeWordDetected = false;
 
     // Load voices
@@ -189,9 +188,6 @@
     window.speechSynthesis.onvoiceschanged = loadVoices;
     loadVoices();
 
-    // ---------------------------------------------------------
-    // 1. SPEECH RECOGNITION SETUP
-    // ---------------------------------------------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (SpeechRecognition) {
@@ -200,12 +196,29 @@
       recognition.interimResults = true; 
       recognition.lang = 'en-US';
 
-      // CLICK HANDLER
+      // --- CLICK HANDLER (INTERRUPT LOGIC) ---
       micBtn.addEventListener('click', () => {
-        // Unlock mobile audio engine
+        // 1. Mobile unlock
         const unlock = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(unlock);
 
+        // 2. CHECK: Are we currently speaking/processing?
+        if (isProcessing) {
+            // --- INTERRUPT MODE ---
+            console.log("👆 User Interrupted Audio!");
+            
+            // A. Cancel Audio
+            window.speechSynthesis.cancel();
+            
+            // B. Force "Wake" state so we listen immediately
+            wakeWordDetected = true; 
+            
+            // C. Reset the system to listen mode
+            resetProcessingState();
+            return;
+        }
+
+        // 3. Normal Toggle (On/Off)
         if (isMicActive) {
             stopMic();
         } else {
@@ -217,12 +230,11 @@
           if (isProcessing) return; 
           isMicActive = true;
           
-          // Clear Buffer on Start
           lastTranscript = "";
-          
           transcriptBox.style.display = "block";
+
           if (wakeWordDetected) {
-               transcriptBox.innerText = "🟢 Ready for next command...";
+               transcriptBox.innerText = "🟢 Ready (Conversation)...";
                updateButtonState("hearing");
           } else {
                transcriptBox.innerText = "Waiting for 'Alice'...";
@@ -230,7 +242,6 @@
           }
           
           try { recognition.start(); } catch(e) {}
-          console.log("Mic Started");
       }
 
       function stopMic() {
@@ -241,10 +252,8 @@
           recognition.stop();
           window.speechSynthesis.cancel(); 
           updateButtonState("idle"); 
-          console.log("Mic Stopped");
       }
 
-      // RESULT HANDLER
       recognition.onresult = (event) => {
         if (isProcessing) return; 
 
@@ -253,18 +262,13 @@
         let transcript = latestResult[0].transcript.toLowerCase().trim();
         const cleanTranscript = transcript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
 
-        // --- CRITICAL FIX: Buffer Check ---
-        // If the text is identical to what we just processed, ignore it.
-        // But if it's new text, let it through.
         if (transcript === lastTranscript) return;
         lastTranscript = transcript;
         
         clearTimeout(commandTimer);
-
-        // Debug Timestamp to prove we are hearing you
         const time = new Date().toLocaleTimeString().split(' ')[0];
 
-        // 1. CHECK WAKE WORD (If not already active)
+        // 1. Check Wake Word (if needed)
         if (!wakeWordDetected) {
             const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
             if (detectedVariant) {
@@ -273,7 +277,7 @@
             }
         }
 
-        // 2. ACTIVE CONVERSATION LOGIC
+        // 2. Process Command
         if (wakeWordDetected) {
             updateButtonState("hearing");
             startConversationTimer();
@@ -281,7 +285,6 @@
             let command = transcript;
             const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
             
-            // Strip wake word if present (e.g. "Alice help")
             if (detectedVariant) {
                 const parts = transcript.split(new RegExp(detectedVariant, 'i'));
                 command = parts[parts.length - 1].trim();
@@ -297,7 +300,6 @@
                      return;
                 }
 
-                // Wait for stability, then send
                 commandTimer = setTimeout(() => {
                     executeCommand(command);
                 }, STABILITY_DELAY);
@@ -312,21 +314,20 @@
       function executeCommand(text) {
           if (isProcessing) return; 
           
-          isProcessing = true; // Lock the Mic
-          updateButtonState("speaking"); // Turn Yellow
+          isProcessing = true; 
+          updateButtonState("speaking"); // Yellow
           transcriptBox.innerText = `Sent: "${text}"`;
           
           console.log("SENDING:", text);
-          recognition.stop(); // Stop listening physically
+          recognition.stop(); 
 
-          // Safety Watchdog: If no response in 6s, force reset
+          // Watchdog: Reset if stuck for 6s
           clearTimeout(safetyResetTimer);
           safetyResetTimer = setTimeout(() => {
               console.warn("Watchdog: No response. Resetting.");
               resetProcessingState(); 
           }, 6000);
           
-          // Send to Dialogflow
           dfMessenger.setAttribute('expand', 'true');
           dfMessenger.renderCustomText(text, true);
           dfMessenger.sendRequest("query", text);
@@ -348,24 +349,22 @@
           }
       }
 
-      // --- RESET STATE (The Fix) ---
+      // --- RESET FUNCTION (Called after audio or interrupt) ---
       function resetProcessingState() {
-          isProcessing = false; // Unlock
+          isProcessing = false; 
           clearTimeout(safetyResetTimer);
           
           if (isMicActive) {
-             // Delay to ensure clean mic restart
              setTimeout(() => {
                  console.log("Restarting Mic...");
-                 
-                 // CRITICAL: Wipe the memory of what was just said
-                 lastTranscript = ""; 
+                 lastTranscript = ""; // Clear buffer
                  
                  try { recognition.start(); } catch(e) {}
                  
+                 // If we interrupted, we stay in "Hearing" mode
                  if (wakeWordDetected) {
                      updateButtonState("hearing");
-                     transcriptBox.innerText = "🟢 Ready...";
+                     transcriptBox.innerText = "🟢 Ready (Listening)...";
                  } else {
                      updateButtonState("armed");
                      transcriptBox.innerText = "Waiting for 'Alice'...";
@@ -374,7 +373,6 @@
           }
       }
 
-      // Auto-restart if mic dies unexpectedly
       recognition.onend = () => {
           if (isMicActive && !isProcessing) {
               setTimeout(() => {
@@ -390,7 +388,7 @@
       };
 
     } else {
-        alert("Browser not supported (Chrome recommended)");
+        alert("Browser not supported");
     }
 
     // --- BUTTON STYLES ---
@@ -407,11 +405,10 @@
     // 2. RESPONSE HANDLING
     // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
-        clearTimeout(safetyResetTimer); // We got a response!
+        clearTimeout(safetyResetTimer);
 
         let botText = "";
         
-        // Extract text from diverse payloads
         if (event.detail.messages) {
             const msg = event.detail.messages.find(m => m.type === 'text');
             if (msg) botText = msg.text;
@@ -426,16 +423,13 @@
             }
         }
 
-        // Action: Speak or Reset
         if (botText && !isMuted) {
-            transcriptBox.innerText = "Alice is speaking...";
+            transcriptBox.innerText = "Alice is speaking (Tap to Stop)...";
             speakText(botText);
         } else {
-            // No audio? Reset immediately.
             resetProcessingState();
         }
 
-        // Handle Audio Files
         if (event.detail.raw && event.detail.raw.queryResult) {
             const msgs = event.detail.raw.queryResult.responseMessages || event.detail.raw.queryResult.fulfillmentMessages;
             if (msgs) {
@@ -451,19 +445,16 @@
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         
-        // Voice Selection
         if (availableVoices.length === 0) availableVoices = window.speechSynthesis.getVoices();
         let v = availableVoices.find(v => v.name.includes("Google") && v.name.includes("US"));
         if (!v) v = availableVoices.find(v => v.lang.includes("en-"));
         if (v) utterance.voice = v;
         
-        // EVENTS
         utterance.onend = () => {
             console.log("TTS Finished");
             resetProcessingState(); 
         };
         utterance.onerror = () => {
-             console.log("TTS Error");
              resetProcessingState();
         };
 

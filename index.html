@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Zira Voice)</title>
+  <title>Alice Agent (Bottom Right Layout)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -20,11 +20,11 @@
       right: 16px;
     }
 
-    /* Microphone Button */
+    /* Microphone Button - Moved to bottom right */
     #voice-trigger-btn {
       position: fixed;
-      bottom: 100px; 
-      right: 24px;   
+      bottom: 20px;       /* Aligned vertically with chat bubble */
+      right: 100px;       /* Placed to the left of the chat bubble */
       z-index: 1000;
       width: 60px;
       height: 60px;
@@ -51,11 +51,11 @@
       animation: pulse-red 1.5s infinite;
     }
 
-    /* Mute Button */
+    /* Mute Button - Moved to left of microphone */
     #mute-btn {
       position: fixed;
-      bottom: 170px;
-      right: 34px;   
+      bottom: 25px;       /* Centered vertically relative to the mic */
+      right: 170px;       /* Placed to the left of the mic button */
       z-index: 1000;
       width: 40px;   
       height: 40px;
@@ -121,21 +121,21 @@
     // Variable to hold the voices
     let availableVoices = [];
 
-    // Load voices immediately (Handling Chrome's async loading)
+    // Load voices immediately
     window.speechSynthesis.onvoiceschanged = () => {
         availableVoices = window.speechSynthesis.getVoices();
         console.log(`Voices loaded: ${availableVoices.length}`);
     };
 
     // ---------------------------------------------------------
-    // 1. RESPONSE HANDLER (Finds Text & Speaks)
+    // 1. RESPONSE HANDLER
     // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
         console.log("✅ Response Received");
 
         let botText = "";
 
-        // PRIORITY 1: Check 'messages' array (Common in your logs)
+        // PRIORITY 1: Check 'messages' array
         if (event.detail.messages && event.detail.messages.length > 0) {
             const msg = event.detail.messages.find(m => m.type === 'text');
             if (msg && msg.text) {
@@ -143,7 +143,7 @@
             }
         }
         
-        // PRIORITY 2: Check 'raw' structure (Deep dive for Dialogflow CX)
+        // PRIORITY 2: Check 'raw' structure
         if (!botText && event.detail.raw && event.detail.raw.queryResult) {
             const qr = event.detail.raw.queryResult;
             if (qr.responseMessages) {
@@ -159,7 +159,7 @@
             speakText(botText);
         }
 
-        // --- AUDIO PAYLOAD (Optional .mp3 playback) ---
+        // --- AUDIO PAYLOAD ---
         if (event.detail.raw && event.detail.raw.queryResult) {
              const qr = event.detail.raw.queryResult;
              const messages = qr.responseMessages || qr.fulfillmentMessages;
@@ -181,13 +181,11 @@
 
         const utterance = new SpeechSynthesisUtterance(text);
         
-        // Ensure voices are loaded
         if (availableVoices.length === 0) {
             availableVoices = window.speechSynthesis.getVoices();
         }
 
-        // --- FIND MICROSOFT ZIRA ---
-        // We search for "Zira" specifically.
+        // Find Microsoft Zira
         const ziraVoice = availableVoices.find(v => v.name.includes("Zira"));
         
         if (ziraVoice) {
@@ -195,12 +193,10 @@
             console.log("🔊 Using Voice: Microsoft Zira");
         } else {
             console.warn("⚠️ Microsoft Zira not found. Falling back to default English.");
-            // Fallback so the bot isn't silent on non-Windows devices
             const fallbackVoice = availableVoices.find(v => v.lang.includes('en-US'));
             if (fallbackVoice) utterance.voice = fallbackVoice;
         }
 
-        // Settings (Zira sounds best at these settings)
         utterance.rate = 1.0; 
         utterance.pitch = 1.0; 
 
@@ -219,12 +215,11 @@
       recognition.interimResults = false;
 
       micBtn.addEventListener('click', () => {
-        // Unlock browser audio context on first click
+        // Unlock browser audio
         if (!audioUnlocked) {
             const utterance = new SpeechSynthesisUtterance('');
             window.speechSynthesis.speak(utterance);
             audioUnlocked = true;
-            console.log("🔓 Audio Context Unlocked");
         }
 
         if (isRecording) {
@@ -277,3 +272,4 @@
   </script>
 </body>
 </html>
+

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Auto-Send on Silence)</title>
+  <title>Alice Agent (Fixed Auto-Send)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -58,7 +58,7 @@
       box-shadow: 0 0 15px #EA4335;
     }
 
-    /* Real-Time Transcript Display (Debug) */
+    /* Real-Time Transcript Display */
     #live-transcript {
       position: fixed;
       bottom: 80px; 
@@ -70,7 +70,7 @@
       font-family: sans-serif;
       font-size: 12px;
       max-width: 200px;
-      display: none; /* Hidden by default */
+      display: none; 
       z-index: 998;
     }
 
@@ -141,31 +141,33 @@
     
     // --- SETTINGS ---
     const WAKE_WORD = "alice";
-    const SILENCE_DELAY = 1500; // 1.5 seconds silence = send command
+    const SILENCE_DELAY = 1500; // 1.5 seconds silence -> Send
     
     let isMicActive = false;
     let isCommandFound = false;
+    let isSending = false; // LOCK FLAG
     let isMuted = false;
     let availableVoices = [];
-    let silenceTimer = null; // The Magic Timer
+    let silenceTimer = null; 
 
     window.speechSynthesis.onvoiceschanged = () => {
         availableVoices = window.speechSynthesis.getVoices();
     };
 
     // ---------------------------------------------------------
-    // 1. AUTO-SEND LOGIC
+    // 1. AUTO-SEND LOGIC (FIXED)
     // ---------------------------------------------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;  
-      recognition.interimResults = true; // Essential for real-time detection
+      recognition.interimResults = true; 
       recognition.lang = 'en-US';
 
       // --- CLICK HANDLER ---
       micBtn.addEventListener('click', () => {
+        // Unlock Audio
         const unlock = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(unlock);
 
@@ -179,6 +181,7 @@
       function startMic() {
           isMicActive = true;
           isCommandFound = false;
+          isSending = false;
           transcriptBox.style.display = "block";
           transcriptBox.innerText = "Waiting for 'Alice'...";
           
@@ -197,7 +200,9 @@
 
       // --- RESULT HANDLER ---
       recognition.onresult = (event) => {
-        // Clear any existing send timer (User is still talking!)
+        if (isSending) return; // DON'T PROCESS IF ALREADY SENDING
+
+        // Reset silence timer on every new word
         clearTimeout(silenceTimer);
 
         const results = event.results;
@@ -209,7 +214,7 @@
 
         // 1. Check for Wake Word
         if (transcript.includes(WAKE_WORD)) {
-            // If this is the first time hearing "Alice", switch visuals
+            
             if (!isCommandFound) {
                 isCommandFound = true;
                 updateButtonState("hearing"); // Red
@@ -224,7 +229,6 @@
                 transcriptBox.innerText = `Command: "${command}"`;
                 
                 // 3. START SILENCE TIMER
-                // "If I don't hear anything else for 1.5s, SEND IT."
                 silenceTimer = setTimeout(() => {
                     executeCommand(command);
                 }, SILENCE_DELAY);
@@ -233,33 +237,36 @@
       };
 
       function executeCommand(text) {
-          console.log("🚀 Auto-Sending Command:", text);
+          if (isSending) return; // Prevent double sends
+          isSending = true; // LOCK
+
+          console.log("🚀 SENDING COMMAND:", text);
           transcriptBox.innerText = `Sent: "${text}"`;
           
-          // Send to Dialogflow
+          // 1. Send to Dialogflow
           dfMessenger.renderCustomText(text, true);
           dfMessenger.setAttribute('expand', 'true');
           dfMessenger.sendRequest("query", text);
 
-          // Reset Logic
-          isCommandFound = false;
-          
-          // RESTART RECOGNITION (Clears the buffer)
+          // 2. Hard Reset of Recognition (Clears Buffer)
           recognition.stop(); 
-          // The onend event will handle the restart
       }
 
       // --- AUTO-RESTART LOOP ---
       recognition.onend = () => {
           if (isMicActive) {
               console.log("🔄 Buffer clear. Restarting...");
-              // Small delay to ensure clean restart
+              
               setTimeout(() => {
+                  isSending = false; // UNLOCK
+                  isCommandFound = false; // Reset Logic
+                  
                   try { 
                       recognition.start(); 
                       updateButtonState("armed"); // Back to Green
+                      transcriptBox.innerText = "Waiting for 'Alice'...";
                   } catch(e) {}
-              }, 200);
+              }, 200); // Small delay
           } else {
               updateButtonState("idle");
           }
@@ -340,6 +347,7 @@
   </script>
 </body>
 </html>
+
 
 
 

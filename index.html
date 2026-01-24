@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Samantha Voice)</title>
+  <title>Alice Agent (Zira Voice)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -118,33 +118,24 @@
     let isMuted = false;
     let audioUnlocked = false; 
 
-    // --- VOICE SETTINGS ---
-    // The code will try these in order. 
-    // If it finds "Samantha", it uses it. If not, it falls back to "Zira".
-    const PREFERRED_VOICES = [
-        "Samantha",                  // MacOS Standard
-        "Microsoft Samantha",        // Legacy Windows
-        "Microsoft Zira",            // Windows 10/11 Standard Female
-        "Google US English"          // Chrome Default
-    ];
-
+    // Variable to hold the voices
     let availableVoices = [];
 
-    // Load voices (Chrome loads them asynchronously)
+    // Load voices immediately (Handling Chrome's async loading)
     window.speechSynthesis.onvoiceschanged = () => {
         availableVoices = window.speechSynthesis.getVoices();
         console.log(`Voices loaded: ${availableVoices.length}`);
     };
 
     // ---------------------------------------------------------
-    // 1. RESPONSE HANDLER
+    // 1. RESPONSE HANDLER (Finds Text & Speaks)
     // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
         console.log("✅ Response Received");
 
         let botText = "";
 
-        // PRIORITY 1: Check 'messages' array (Cleanest path)
+        // PRIORITY 1: Check 'messages' array (Common in your logs)
         if (event.detail.messages && event.detail.messages.length > 0) {
             const msg = event.detail.messages.find(m => m.type === 'text');
             if (msg && msg.text) {
@@ -152,7 +143,7 @@
             }
         }
         
-        // PRIORITY 2: Check 'raw' structure (Deep dive)
+        // PRIORITY 2: Check 'raw' structure (Deep dive for Dialogflow CX)
         if (!botText && event.detail.raw && event.detail.raw.queryResult) {
             const qr = event.detail.raw.queryResult;
             if (qr.responseMessages) {
@@ -168,7 +159,7 @@
             speakText(botText);
         }
 
-        // --- AUDIO PAYLOAD (Optional) ---
+        // --- AUDIO PAYLOAD (Optional .mp3 playback) ---
         if (event.detail.raw && event.detail.raw.queryResult) {
              const qr = event.detail.raw.queryResult;
              const messages = qr.responseMessages || qr.fulfillmentMessages;
@@ -183,42 +174,35 @@
     });
 
     // ---------------------------------------------------------
-    // 2. CUSTOM VOICE FUNCTION (Samantha Logic)
+    // 2. MICROSOFT ZIRA VOICE FUNCTION
     // ---------------------------------------------------------
     function speakText(text) {
         window.speechSynthesis.cancel();
 
         const utterance = new SpeechSynthesisUtterance(text);
         
-        // --- VOICE SELECTION LOGIC ---
-        let selectedVoice = null;
-        
+        // Ensure voices are loaded
         if (availableVoices.length === 0) {
             availableVoices = window.speechSynthesis.getVoices();
         }
 
-        // Loop through our preferred list and pick the first one installed on the PC
-        for (const name of PREFERRED_VOICES) {
-            const found = availableVoices.find(v => v.name.includes(name));
-            if (found) {
-                selectedVoice = found;
-                break;
-            }
+        // --- FIND MICROSOFT ZIRA ---
+        // We search for "Zira" specifically.
+        const ziraVoice = availableVoices.find(v => v.name.includes("Zira"));
+        
+        if (ziraVoice) {
+            utterance.voice = ziraVoice;
+            console.log("🔊 Using Voice: Microsoft Zira");
+        } else {
+            console.warn("⚠️ Microsoft Zira not found. Falling back to default English.");
+            // Fallback so the bot isn't silent on non-Windows devices
+            const fallbackVoice = availableVoices.find(v => v.lang.includes('en-US'));
+            if (fallbackVoice) utterance.voice = fallbackVoice;
         }
 
-        // If no specific voice found, fall back to first English voice
-        if (!selectedVoice) {
-            selectedVoice = availableVoices.find(v => v.lang.includes('en-US'));
-        }
-
-        if (selectedVoice) {
-            utterance.voice = selectedVoice;
-            console.log("🔊 Speaking with voice:", selectedVoice.name);
-        }
-
-        // Settings
-        utterance.rate = 1.0;  // 1 = Normal, 0.9 = Slightly Slower
-        utterance.pitch = 1.0; // 1 = Normal
+        // Settings (Zira sounds best at these settings)
+        utterance.rate = 1.0; 
+        utterance.pitch = 1.0; 
 
         window.speechSynthesis.speak(utterance);
     }

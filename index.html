@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Fixed)</title>
+  <title>Alice Agent (Audio Unlocked)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -116,97 +116,87 @@
     
     let isRecording = false;
     let isMuted = false;
+    let audioUnlocked = false; // NEW FLAG
 
-    // Force browser to load voices immediately
-    window.speechSynthesis.getVoices();
+    // 1. PRE-LOAD VOICES (Chrome Fix)
+    let voices = [];
+    window.speechSynthesis.onvoiceschanged = () => {
+        voices = window.speechSynthesis.getVoices();
+        console.log("Voices loaded:", voices.length);
+    };
 
     // ---------------------------------------------------------
-    // 1. DATA HANDLER (Customized for your 'raw' structure)
+    // 2. RESPONSE HANDLER (Prioritizes "messages" array)
     // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
-        
-        let queryResult = null;
+        console.log("✅ Response Received");
 
-        // --- PATH FINDING LOGIC ---
-        // 1. Check 'raw' (This matches your logs)
-        if (event.detail.raw && event.detail.raw.queryResult) {
-            queryResult = event.detail.raw.queryResult;
-        } 
-        // 2. Check 'response' (Standard fallback)
-        else if (event.detail.response && event.detail.response.queryResult) {
-             queryResult = event.detail.response.queryResult;
-        }
-
-        if (!queryResult) {
-            console.error("❌ Could not find queryResult. Attempting fallback...");
-            // Fallback: Try to find text directly in 'messages' array if raw failed
-            if (event.detail.messages && event.detail.messages.length > 0) {
-                const simpleText = event.detail.messages[0].text;
-                if (simpleText && !isMuted) speakText(simpleText);
-                return;
-            }
-            return;
-        }
-
-        // --- TEXT EXTRACTION ---
         let botText = "";
-        
-        // Check for Dialogflow CX text (Matches your log)
-        if (queryResult.responseMessages) {
-            const textMsg = queryResult.responseMessages.find(msg => msg.text);
-            if (textMsg && textMsg.text.text.length > 0) {
-                botText = textMsg.text.text[0];
+
+        // PRIORITY 1: Check 'messages' (Cleanest path from your logs)
+        if (event.detail.messages && event.detail.messages.length > 0) {
+            const msg = event.detail.messages.find(m => m.type === 'text');
+            if (msg && msg.text) {
+                botText = msg.text;
+                console.log("Found text in 'messages':", botText);
             }
         }
-        // Check for Dialogflow ES text (Backup)
-        else if (queryResult.fulfillmentText) {
-            botText = queryResult.fulfillmentText;
-        } 
-
-        console.log("🗣️ Text found:", botText);
+        
+        // PRIORITY 2: Check 'raw' (Deep dive path)
+        if (!botText && event.detail.raw && event.detail.raw.queryResult) {
+            const qr = event.detail.raw.queryResult;
+            if (qr.responseMessages) {
+                const textMsg = qr.responseMessages.find(m => m.text);
+                if (textMsg && textMsg.text.text.length > 0) {
+                    botText = textMsg.text.text[0];
+                    console.log("Found text in 'raw':", botText);
+                }
+            }
+        }
 
         // --- SPEAK ---
         if (botText && !isMuted) {
             speakText(botText);
+        } else {
+            console.warn("No text found to speak or system is muted.");
         }
 
-        // --- PLAY AUDIO PAYLOAD ---
-        const messages = queryResult.fulfillmentMessages || queryResult.responseMessages;
-        if (messages && !isMuted) {
-            const payloadMsg = messages.find(msg => msg.payload && msg.payload.audioUrl);
-            if (payloadMsg) {
-                const audio = new Audio(payloadMsg.payload.audioUrl);
-                audio.play().catch(e => console.error("Audio playback error:", e));
-            }
+        // --- AUDIO PAYLOAD (Optional) ---
+        // Checks raw structure for audioUrl
+        if (event.detail.raw && event.detail.raw.queryResult) {
+             const qr = event.detail.raw.queryResult;
+             const messages = qr.responseMessages || qr.fulfillmentMessages;
+             if (messages && !isMuted) {
+                const payloadMsg = messages.find(msg => msg.payload && msg.payload.audioUrl);
+                if (payloadMsg) {
+                    const audio = new Audio(payloadMsg.payload.audioUrl);
+                    audio.play().catch(e => console.error("Audio Playback Error:", e));
+                }
+             }
         }
     });
 
+    // ---------------------------------------------------------
+    // 3. ROBUST SPEECH FUNCTION
+    // ---------------------------------------------------------
     function speakText(text) {
+        // Cancel any current speech
         window.speechSynthesis.cancel();
-        
-        // Retry mechanism if voices aren't ready
-        const voices = window.speechSynthesis.getVoices();
-        if (voices.length === 0) {
-            setTimeout(() => speakText(text), 100);
-            return;
-        }
 
         const utterance = new SpeechSynthesisUtterance(text);
+        
+        // Select an English voice explicitly if possible
+        const englishVoice = voices.find(v => v.lang.includes('en-US')) || voices[0];
+        if (englishVoice) {
+            utterance.voice = englishVoice;
+        }
+
+        console.log("🔊 Attempting to speak:", text);
         window.speechSynthesis.speak(utterance);
     }
 
     // ---------------------------------------------------------
-    // 2. MUTE BUTTON
-    // ---------------------------------------------------------
-    muteBtn.addEventListener('click', () => {
-        isMuted = !isMuted;
-        muteBtn.textContent = isMuted ? "🔇" : "🔊";
-        muteBtn.classList.toggle('muted', isMuted);
-        if (isMuted) window.speechSynthesis.cancel();
-    });
-
-    // ---------------------------------------------------------
-    // 3. MICROPHONE
+    // 4. MICROPHONE & AUDIO UNLOCK
     // ---------------------------------------------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -217,6 +207,16 @@
       recognition.interimResults = false;
 
       micBtn.addEventListener('click', () => {
+        // --- KEY FIX: UNLOCK AUDIO CONTEXT ---
+        if (!audioUnlocked) {
+            // Play a split-second of silence to unlock browser audio
+            const utterance = new SpeechSynthesisUtterance('');
+            window.speechSynthesis.speak(utterance);
+            audioUnlocked = true;
+            console.log("🔓 Audio Context Unlocked");
+        }
+        // -------------------------------------
+
         if (isRecording) {
             recognition.stop();
         } else {
@@ -253,16 +253,17 @@
         console.error("Web Speech API not supported");
         micBtn.style.display = "none";
     }
+
+    // ---------------------------------------------------------
+    // 5. MUTE TOGGLE
+    // ---------------------------------------------------------
+    muteBtn.addEventListener('click', () => {
+        isMuted = !isMuted;
+        muteBtn.textContent = isMuted ? "🔇" : "🔊";
+        muteBtn.classList.toggle('muted', isMuted);
+        if (isMuted) window.speechSynthesis.cancel();
+    });
+
   </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-

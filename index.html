@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Audio Unlocked)</title>
+  <title>Alice Agent (Samantha Voice)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -116,40 +116,49 @@
     
     let isRecording = false;
     let isMuted = false;
-    let audioUnlocked = false; // NEW FLAG
+    let audioUnlocked = false; 
 
-    // 1. PRE-LOAD VOICES (Chrome Fix)
-    let voices = [];
+    // --- VOICE SETTINGS ---
+    // The code will try these in order. 
+    // If it finds "Samantha", it uses it. If not, it falls back to "Zira".
+    const PREFERRED_VOICES = [
+        "Samantha",                  // MacOS Standard
+        "Microsoft Samantha",        // Legacy Windows
+        "Microsoft Zira",            // Windows 10/11 Standard Female
+        "Google US English"          // Chrome Default
+    ];
+
+    let availableVoices = [];
+
+    // Load voices (Chrome loads them asynchronously)
     window.speechSynthesis.onvoiceschanged = () => {
-        voices = window.speechSynthesis.getVoices();
-        console.log("Voices loaded:", voices.length);
+        availableVoices = window.speechSynthesis.getVoices();
+        console.log(`Voices loaded: ${availableVoices.length}`);
     };
 
     // ---------------------------------------------------------
-    // 2. RESPONSE HANDLER (Prioritizes "messages" array)
+    // 1. RESPONSE HANDLER
     // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
         console.log("✅ Response Received");
 
         let botText = "";
 
-        // PRIORITY 1: Check 'messages' (Cleanest path from your logs)
+        // PRIORITY 1: Check 'messages' array (Cleanest path)
         if (event.detail.messages && event.detail.messages.length > 0) {
             const msg = event.detail.messages.find(m => m.type === 'text');
             if (msg && msg.text) {
                 botText = msg.text;
-                console.log("Found text in 'messages':", botText);
             }
         }
         
-        // PRIORITY 2: Check 'raw' (Deep dive path)
+        // PRIORITY 2: Check 'raw' structure (Deep dive)
         if (!botText && event.detail.raw && event.detail.raw.queryResult) {
             const qr = event.detail.raw.queryResult;
             if (qr.responseMessages) {
                 const textMsg = qr.responseMessages.find(m => m.text);
                 if (textMsg && textMsg.text.text.length > 0) {
                     botText = textMsg.text.text[0];
-                    console.log("Found text in 'raw':", botText);
                 }
             }
         }
@@ -157,12 +166,9 @@
         // --- SPEAK ---
         if (botText && !isMuted) {
             speakText(botText);
-        } else {
-            console.warn("No text found to speak or system is muted.");
         }
 
         // --- AUDIO PAYLOAD (Optional) ---
-        // Checks raw structure for audioUrl
         if (event.detail.raw && event.detail.raw.queryResult) {
              const qr = event.detail.raw.queryResult;
              const messages = qr.responseMessages || qr.fulfillmentMessages;
@@ -177,26 +183,48 @@
     });
 
     // ---------------------------------------------------------
-    // 3. ROBUST SPEECH FUNCTION
+    // 2. CUSTOM VOICE FUNCTION (Samantha Logic)
     // ---------------------------------------------------------
     function speakText(text) {
-        // Cancel any current speech
         window.speechSynthesis.cancel();
 
         const utterance = new SpeechSynthesisUtterance(text);
         
-        // Select an English voice explicitly if possible
-        const englishVoice = voices.find(v => v.lang.includes('en-US')) || voices[0];
-        if (englishVoice) {
-            utterance.voice = englishVoice;
+        // --- VOICE SELECTION LOGIC ---
+        let selectedVoice = null;
+        
+        if (availableVoices.length === 0) {
+            availableVoices = window.speechSynthesis.getVoices();
         }
 
-        console.log("🔊 Attempting to speak:", text);
+        // Loop through our preferred list and pick the first one installed on the PC
+        for (const name of PREFERRED_VOICES) {
+            const found = availableVoices.find(v => v.name.includes(name));
+            if (found) {
+                selectedVoice = found;
+                break;
+            }
+        }
+
+        // If no specific voice found, fall back to first English voice
+        if (!selectedVoice) {
+            selectedVoice = availableVoices.find(v => v.lang.includes('en-US'));
+        }
+
+        if (selectedVoice) {
+            utterance.voice = selectedVoice;
+            console.log("🔊 Speaking with voice:", selectedVoice.name);
+        }
+
+        // Settings
+        utterance.rate = 1.0;  // 1 = Normal, 0.9 = Slightly Slower
+        utterance.pitch = 1.0; // 1 = Normal
+
         window.speechSynthesis.speak(utterance);
     }
 
     // ---------------------------------------------------------
-    // 4. MICROPHONE & AUDIO UNLOCK
+    // 3. MICROPHONE & AUDIO UNLOCK
     // ---------------------------------------------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -207,15 +235,13 @@
       recognition.interimResults = false;
 
       micBtn.addEventListener('click', () => {
-        // --- KEY FIX: UNLOCK AUDIO CONTEXT ---
+        // Unlock browser audio context on first click
         if (!audioUnlocked) {
-            // Play a split-second of silence to unlock browser audio
             const utterance = new SpeechSynthesisUtterance('');
             window.speechSynthesis.speak(utterance);
             audioUnlocked = true;
             console.log("🔓 Audio Context Unlocked");
         }
-        // -------------------------------------
 
         if (isRecording) {
             recognition.stop();
@@ -255,7 +281,7 @@
     }
 
     // ---------------------------------------------------------
-    // 5. MUTE TOGGLE
+    // 4. MUTE TOGGLE
     // ---------------------------------------------------------
     muteBtn.addEventListener('click', () => {
         isMuted = !isMuted;

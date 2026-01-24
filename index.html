@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Fail-Safe)</title>
+  <title>Alice Agent (Real-Time Wake Word)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -46,16 +46,16 @@
       transform: scale(1.1);
     }
 
-    /* STATE: ARMED (Green) */
-    #voice-trigger-btn.armed {
+    /* STATE: WAITING FOR 'ALICE' (Green Pulse) */
+    #voice-trigger-btn.waiting-for-alice {
       background-color: #34A853 !important;
       animation: pulse-green 2s infinite;
     }
 
-    /* STATE: PROCESSING (Red) */
-    #voice-trigger-btn.processing {
+    /* STATE: HEARD 'ALICE', LISTENING FOR COMMAND (Red Pulse) */
+    #voice-trigger-btn.listening-for-command {
       background-color: #EA4335 !important;
-      animation: pulse-red 0.5s infinite;
+      animation: pulse-red 1.0s infinite;
     }
 
     /* Mute Button */
@@ -131,133 +131,157 @@
     const WAKE_WORD = "alice";
     
     // State Flags
-    let isWakeWordMode = false; // Is the user wanting it to be on?
+    let isMicActive = false;       // Is the mic turned on?
+    let isCommandMode = false;     // Have we heard "Alice" yet?
     let isMuted = false;
     let availableVoices = [];
+    let lastProcessedTime = 0;     // Debounce to prevent double sends
 
-    // Initialize Voices
     window.speechSynthesis.onvoiceschanged = () => {
         availableVoices = window.speechSynthesis.getVoices();
     };
 
     // ---------------------------------------------------------
-    // 1. ROBUST "FAIL-SAFE" MICROPHONE LOGIC
+    // 1. REAL-TIME WAKE WORD LOGIC
     // ---------------------------------------------------------
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = true;  // Keep listening as long as possible
-      recognition.interimResults = false; 
+      recognition.continuous = true;  
+      recognition.interimResults = true; // KEY CHANGE: Get results immediately
       recognition.lang = 'en-US';
 
       // --- CLICK HANDLER ---
       micBtn.addEventListener('click', () => {
-        // 1. Audio Unlock (Browser requirement)
+        // Unlock Audio
         const unlock = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(unlock);
 
-        // 2. Toggle Mode
-        if (isWakeWordMode) {
-            // TURN OFF
-            isWakeWordMode = false;
-            recognition.stop();
-            console.log("🛑 User requested STOP.");
-            
-            // Visual Reset
-            micBtn.classList.remove('armed', 'processing');
-            micBtn.style.backgroundColor = "#4285F4"; // Blue
+        if (isMicActive) {
+            // STOP
+            stopMic();
         } else {
-            // TURN ON
-            isWakeWordMode = true;
-            console.log("🟢 User requested START.");
-            try {
-                recognition.start();
-            } catch (e) {
-                console.warn("⚠️ Mic was already running. Re-syncing...");
-            }
+            // START
+            startMic();
         }
       });
 
-      // --- EVENT: ON START ---
-      recognition.onstart = () => {
-        if (isWakeWordMode) {
-            console.log("🎤 Mic is ACTIVE (Listening for 'Alice')...");
-            micBtn.classList.remove('processing');
-            micBtn.classList.add('armed'); // Green
-        }
-      };
+      function startMic() {
+          isMicActive = true;
+          isCommandMode = false; // Start in "Waiting for Alice" mode
+          try {
+              recognition.start();
+          } catch(e) { console.warn("Mic already on"); }
+          
+          updateButtonState("waiting");
+          console.log("🟢 Mic Started. Waiting for 'Alice'...");
+      }
 
-      // --- EVENT: ON RESULT (Heard something) ---
+      function stopMic() {
+          isMicActive = false;
+          isCommandMode = false;
+          recognition.stop();
+          updateButtonState("idle");
+          console.log("🛑 Mic Stopped.");
+      }
+
+      // --- RESULT HANDLER (The Brain) ---
       recognition.onresult = (event) => {
-        const lastIndex = event.results.length - 1;
-        const transcript = event.results[lastIndex][0].transcript;
-        const lowerText = transcript.toLowerCase().trim();
+        const results = event.results;
+        // Get the latest result (interim or final)
+        const latestResult = results[results.length - 1];
+        const transcript = latestResult[0].transcript.toLowerCase().trim();
+        const isFinal = latestResult.isFinal;
 
-        console.log("👂 Heard:", lowerText);
+        console.log(`🎤 Heard (${isFinal ? 'Final' : 'Interim'}): "${transcript}"`);
 
-        if (lowerText.includes(WAKE_WORD)) {
-            console.log("⚡ Wake Word Detected!");
-            
-            // Visual Feedback (Red Pulse)
-            micBtn.classList.remove('armed');
-            micBtn.classList.add('processing');
+        // IGNORE short blips to prevent duplicate sends
+        if (Date.now() - lastProcessedTime < 1000) return;
 
-            // Process Command
-            const parts = lowerText.split(WAKE_WORD);
-            const command = parts[parts.length - 1].trim();
+        // SCENARIO 1: We are waiting for "Alice"
+        if (!isCommandMode) {
+            if (transcript.includes(WAKE_WORD)) {
+                console.log("⚡ Wake Word Detected!");
+                isCommandMode = true; // Switch to Command Mode
+                updateButtonState("listening");
 
-            if (command.length > 0) {
-                console.log("📤 Sending:", command);
-                dfMessenger.renderCustomText(command, true);
-                dfMessenger.setAttribute('expand', 'true');
-                dfMessenger.sendRequest("query", command);
-            }
-
-            // Reset to Green after delay
-            setTimeout(() => {
-                if (isWakeWordMode) {
-                    micBtn.classList.remove('processing');
-                    micBtn.classList.add('armed');
+                // Check if command came in the SAME breath (e.g. "Alice help me")
+                const parts = transcript.split(WAKE_WORD);
+                const potentialCommand = parts[parts.length - 1].trim();
+                
+                if (potentialCommand.length > 2) {
+                    sendCommand(potentialCommand);
                 }
-            }, 2500);
+            }
+        }
+        // SCENARIO 2: We already heard "Alice", now processing command
+        else {
+            // If we are here, everything spoken is the command
+            if (transcript.length > 2) {
+                // To avoid sending incomplete sentences, we usually wait for a pause
+                // But since you want speed, we look for 'isFinal' OR a long string
+                if (isFinal || transcript.length > 10) {
+                     sendCommand(transcript);
+                }
+            }
         }
       };
 
-      // --- EVENT: ON END (Auto-Restart) ---
+      function sendCommand(text) {
+          console.log("🚀 Sending Command:", text);
+          
+          // 1. Send to Dialogflow
+          dfMessenger.renderCustomText(text, true);
+          dfMessenger.setAttribute('expand', 'true');
+          dfMessenger.sendRequest("query", text);
+
+          // 2. Reset State
+          lastProcessedTime = Date.now();
+          isCommandMode = false; // Go back to waiting for "Alice"
+          
+          // 3. Visual Reset (Red -> Green after delay)
+          setTimeout(() => {
+              if (isMicActive) updateButtonState("waiting");
+          }, 2000);
+          
+          // 4. Force buffer clear (Restart recognition cleanly)
+          // This prevents the old "Alice" text from sticking around
+          recognition.stop(); 
+      }
+
+      // --- AUTO-RESTART (Keep Alive) ---
       recognition.onend = () => {
-        console.log("End event triggered.");
-        if (isWakeWordMode) {
-            console.log("🔄 Auto-Restarting Mic...");
-            // Small delay to prevent CPU crash loop
-            setTimeout(() => {
-                try {
-                    recognition.start();
-                } catch (e) {
-                    console.log("Restart skipped (already running).");
-                }
-            }, 200);
-        } else {
-            // Ensure visual state matches "OFF"
-            micBtn.classList.remove('armed', 'processing');
-            micBtn.style.backgroundColor = "#4285F4";
-            console.log("🛑 Mic fully stopped.");
-        }
+          if (isMicActive) {
+              console.log("🔄 Restarting loop...");
+              setTimeout(() => {
+                  try { recognition.start(); } catch(e) {}
+              }, 200);
+          } else {
+              updateButtonState("idle");
+          }
       };
 
       recognition.onerror = (event) => {
-        console.error("⚠️ Speech Error:", event.error);
-        if (event.error === 'not-allowed') {
-            alert("Microphone access blocked. Please allow permissions.");
-            isWakeWordMode = false;
-            micBtn.classList.remove('armed', 'processing');
-        }
-        // Other errors (no-speech, network) are handled by onend auto-restart
+          // Ignore small errors, let loop restart
+          console.warn("Speech Error:", event.error);
       };
-
     } else {
-        alert("This browser does not support Voice Recognition.");
         micBtn.style.display = "none";
+        alert("Browser not supported.");
+    }
+
+    // --- HELPER: BUTTON STYLING ---
+    function updateButtonState(state) {
+        // Reset
+        micBtn.classList.remove('waiting-for-alice', 'listening-for-command');
+        micBtn.style.backgroundColor = "#4285F4"; // Blue default
+
+        if (state === "waiting") {
+            micBtn.classList.add('waiting-for-alice'); // Green
+        } else if (state === "listening") {
+            micBtn.classList.add('listening-for-command'); // Red
+        }
     }
 
     // ---------------------------------------------------------
@@ -295,7 +319,6 @@
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         
-        // Voice Selection (Natural -> Google -> Zira -> Default)
         if (availableVoices.length === 0) availableVoices = window.speechSynthesis.getVoices();
         
         let v = availableVoices.find(v => v.name.includes("Natural") && v.name.includes("English"));
@@ -308,9 +331,7 @@
         window.speechSynthesis.speak(utterance);
     }
 
-    // ---------------------------------------------------------
-    // 3. MUTE TOGGLE
-    // ---------------------------------------------------------
+    // --- MUTE TOGGLE ---
     muteBtn.addEventListener('click', () => {
         isMuted = !isMuted;
         muteBtn.textContent = isMuted ? "🔇" : "🔊";
@@ -321,6 +342,7 @@
   </script>
 </body>
 </html>
+
 
 
 

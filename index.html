@@ -3,9 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Persistent Open)</title>
+  <title>Alice Agent (Force Open)</title>
 
   <script>
+    console.log("🧹 Wiping Dialogflow Memory...");
     localStorage.removeItem('df-messenger-state');
     localStorage.removeItem('df-messenger-settings');
   </script>
@@ -16,61 +17,43 @@
     df-messenger {
       z-index: 999;
       position: fixed;
-      
-      /* --- COLORS --- */
       --df-messenger-font-color: #000;
       --df-messenger-font-family: Google Sans;
       --df-messenger-chat-background: #f3f6fc;
       --df-messenger-message-user-background: #d3e3fd;
       --df-messenger-message-bot-background: #fff;
       
-      /* --- FORCE SIZE --- */
-      --df-messenger-chat-window-height: 80vh; 
-      --df-messenger-chat-window-width: 500px; 
+      /* Force Large Size */
+      --df-messenger-chat-window-height: 80vh !important; 
+      --df-messenger-chat-window-width: 500px !important; 
       
       bottom: 16px;
       right: 16px;
     }
 
-    /* Microphone Button Styles */
+    /* Microphone Button */
     #voice-trigger-btn {
-      position: fixed;
-      bottom: 20px;        
-      right: 90px;         
-      z-index: 1000;
-      width: 50px;
-      height: 50px;
-      border-radius: 50%;
-      border: none;
-      background-color: #4285F4;
-      color: white;
-      font-size: 24px;
-      cursor: pointer;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background-color 0.2s ease, transform 0.2s ease;
+      position: fixed; bottom: 20px; right: 90px; z-index: 1000;
+      width: 50px; height: 50px; border-radius: 50%; border: none;
+      background-color: #4285F4; color: white; font-size: 24px; cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2); display: flex; align-items: center;
+      justify-content: center; transition: background-color 0.2s ease, transform 0.2s ease;
       outline: none;
     }
-
     #voice-trigger-btn:hover { transform: scale(1.1); }
     #voice-trigger-btn.initializing { background-color: #FBBC05 !important; cursor: wait; }
     #voice-trigger-btn.hearing { background-color: #EA4335 !important; box-shadow: 0 0 15px #EA4335; animation: pulse-red 1.5s infinite; }
     #voice-trigger-btn.speaking { background-color: #FBBC05 !important; color: #fff; cursor: pointer; animation: pulse-ring-yellow 1.5s infinite, flash-opacity 1.5s infinite; }
 
-    /* Mute Button */
     #mute-btn {
-      position: fixed;
-      bottom: 25px; right: 150px; z-index: 1000; width: 40px; height: 40px;
-      border-radius: 50%; border: none; background-color: #f1f3f4; color: #5f6368;
-      font-size: 20px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-      display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; outline: none;
+      position: fixed; bottom: 25px; right: 150px; z-index: 1000; width: 40px; height: 40px;
+      border-radius: 50%; border: none; background-color: #f1f3f4; color: #5f6368; font-size: 20px;
+      cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.2); display: flex; align-items: center;
+      justify-content: center; transition: all 0.2s ease; outline: none;
     }
     #mute-btn:hover { background-color: #e8eaed; transform: scale(1.1); }
     #mute-btn.muted { background-color: #fce8e6; color: #d93025; }
 
-    /* Transcript Display */
     #live-transcript {
       position: fixed; bottom: 28px; right: 210px; background: rgba(32, 33, 36, 0.95);
       color: white; padding: 10px 16px; border-radius: 24px; font-family: 'Google Sans', sans-serif;
@@ -79,19 +62,9 @@
       text-overflow: ellipsis; pointer-events: none; transition: opacity 0.3s ease;
     }
     
-    @keyframes pulse-red {
-      0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); }
-      70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); }
-    }
-    @keyframes pulse-ring-yellow {
-      0% { box-shadow: 0 0 0 0 rgba(251, 188, 5, 0.7); }
-      70% { box-shadow: 0 0 0 15px rgba(251, 188, 5, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(251, 188, 5, 0); }
-    }
-    @keyframes flash-opacity {
-      0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; }
-    }
+    @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); } 100% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); } }
+    @keyframes pulse-ring-yellow { 0% { box-shadow: 0 0 0 0 rgba(251, 188, 5, 0.7); } 70% { box-shadow: 0 0 0 15px rgba(251, 188, 5, 0); } 100% { box-shadow: 0 0 0 0 rgba(251, 188, 5, 0); } }
+    @keyframes flash-opacity { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
   </style>
 </head>
 <body>
@@ -106,7 +79,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-persistent"
+      chat-title="alice-auto"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -121,50 +94,44 @@
     const muteBtn = document.getElementById('mute-btn');
     const transcriptBox = document.getElementById('live-transcript');
 
-    // --- 2. PERSISTENT ENFORCER ---
-    // This function will run repeatedly until it confirms the window is open
-    let attempts = 0;
-    const forceOpenLoop = setInterval(() => {
-        attempts++;
-        if (attempts > 20) { // Stop after 10 seconds (20 * 500ms)
-            clearInterval(forceOpenLoop);
-        }
+    // --- 3. FORCE OPEN LOGIC ---
+    // We listen for the widget to load, then use multiple strategies to open it.
+    
+    window.addEventListener('df-messenger-loaded', function () {
+        console.log("✅ Widget Loaded. Forcing Open...");
 
-        if (dfMessenger && dfMessenger.shadowRoot) {
+        // Strategy A: Render a fake 'Welcome' message.
+        // This usually forces the window to pop open to show the text.
+        try {
+            // dfMessenger.renderCustomText("Welcome! I am ready.", false); 
+        } catch(e) {}
+
+        // Strategy B: The Attribute
+        dfMessenger.setAttribute('expand', 'true');
+
+        // Strategy C: The "Persistent Clicker" (The fail-safe)
+        let attempts = 0;
+        const openerInterval = setInterval(() => {
+            attempts++;
             const shadow = dfMessenger.shadowRoot;
-            const wrapper = shadow.querySelector('.chat-wrapper');
-            const bubble = shadow.querySelector('df-messenger-chat-bubble');
-
-            // Check if wrapper exists and if it is hidden
-            // Note: Different versions use 'expanded' class or style.display
-            const isHidden = !wrapper || wrapper.style.display === 'none' || !wrapper.classList.contains('chat-open');
-
-            if (isHidden) {
-                console.log(`Attempt ${attempts}: Widget closed. Forcing open...`);
-                
-                // Strategy A: Attribute
-                dfMessenger.setAttribute('expand', 'true');
-
-                // Strategy B: Physical Click on the bubble inside Shadow DOM
-                if (bubble) {
-                    bubble.click();
+            if (shadow) {
+                const wrapper = shadow.querySelector('.chat-wrapper');
+                // Check if HIDDEN
+                if (wrapper && (wrapper.style.display === 'none' || !wrapper.classList.contains('chat-open'))) {
+                     console.log(`[Attempt ${attempts}] Widget closed. Clicking icon...`);
+                     const bubble = shadow.querySelector('df-messenger-chat-bubble');
+                     if (bubble) bubble.click();
+                     dfMessenger.setAttribute('expand', 'true');
+                } else {
+                     console.log("✨ Widget is OPEN.");
+                     clearInterval(openerInterval);
                 }
-            } else {
-                console.log("Widget confirmed OPEN. Stopping loop.");
-                
-                // Strategy C: Force CSS one last time to ensure size is correct
-                if(wrapper) {
-                    wrapper.style.height = 'var(--df-messenger-chat-window-height)';
-                    wrapper.style.width = 'var(--df-messenger-chat-window-width)';
-                }
-                
-                clearInterval(forceOpenLoop);
             }
-        }
-    }, 500); // Run every 500ms
+            if(attempts > 20) clearInterval(openerInterval); // Stop after 10s
+        }, 500);
+    });
 
-
-    // --- STANDARD SETTINGS ---
+    // --- STANDARD APP LOGIC ---
     const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
     const STABILITY_DELAY = 400; 
@@ -192,44 +159,29 @@
       recognition.interimResults = true; 
       recognition.lang = 'en-US';
 
-      // CLICK HANDLER
       micBtn.addEventListener('click', () => {
         const unlock = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(unlock);
-
         if (isProcessing) {
             console.log("👆 User Interrupted Audio!");
             window.speechSynthesis.cancel();
             resetProcessingState(); 
             return;
         }
-
-        if (isMicActive) {
-            stopMic();
-        } else {
-            startMic();
-        }
+        if (isMicActive) stopMic(); else startMic();
       });
 
       function startMic() {
           if (isProcessing) return; 
-          
           updateButtonState("initializing");
           transcriptBox.style.display = "block";
           transcriptBox.innerText = "Starting Mic...";
-
-          try { 
-              recognition.start(); 
-          } catch(e) {
-              if(e.message && e.message.includes('started')) {
-                  onMicStartSuccess();
-              }
+          try { recognition.start(); } catch(e) {
+              if(e.message && e.message.includes('started')) onMicStartSuccess();
           }
       }
 
-      recognition.onstart = () => {
-          onMicStartSuccess();
-      };
+      recognition.onstart = () => { onMicStartSuccess(); };
 
       function onMicStartSuccess() {
           isMicActive = true;
@@ -250,13 +202,10 @@
 
       recognition.onresult = (event) => {
         if (isProcessing) return; 
-
         const results = event.results;
         const latestResult = results[results.length - 1];
-        
         let transcript = latestResult[0].transcript.toLowerCase().trim();
         const cleanTranscript = transcript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-        
         let command = transcript;
         const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
         if (detectedVariant) {
@@ -273,36 +222,27 @@
 
         if (transcript === lastTranscript) return;
         lastTranscript = transcript;
-        
         startConversationTimer();
 
         if (command.length > 0) {
             const time = new Date().toLocaleTimeString().split(' ')[0];
             transcriptBox.innerText = `[${time}] Heard: "${command}"...`;
-
             if (EXIT_COMMANDS.includes(command)) {
                     endConversationMode("User ended session");
                     return;
             }
-
             clearTimeout(commandTimer);
-            commandTimer = setTimeout(() => {
-                executeCommand(command);
-            }, STABILITY_DELAY);
+            commandTimer = setTimeout(() => { executeCommand(command); }, STABILITY_DELAY);
         }
       };
 
       function executeCommand(text) {
           clearTimeout(commandTimer);
-
           if (isProcessing || text.length < 1) return; 
-          
           isProcessing = true; 
           lastTranscript = "";
-
           updateButtonState("speaking");
           transcriptBox.innerText = `Sent: "${text}"`;
-          
           console.log("SENDING:", text);
           recognition.stop(); 
 
@@ -319,9 +259,7 @@
 
       function startConversationTimer() {
           clearTimeout(conversationTimeoutTimer);
-          conversationTimeoutTimer = setTimeout(() => {
-              endConversationMode("Timeout");
-          }, CONVERSATION_TIMEOUT_MS);
+          conversationTimeoutTimer = setTimeout(() => { endConversationMode("Timeout"); }, CONVERSATION_TIMEOUT_MS);
       }
 
       function endConversationMode(reason) {
@@ -332,7 +270,6 @@
       function resetProcessingState() {
           isProcessing = false; 
           clearTimeout(safetyResetTimer);
-          
           if (isMicActive) {
              setTimeout(() => {
                  console.log("Restarting Mic...");
@@ -344,9 +281,7 @@
 
       recognition.onend = () => {
           if (isMicActive && !isProcessing) {
-              setTimeout(() => {
-                  try { recognition.start(); } catch(e) {}
-              }, 200); 
+              setTimeout(() => { try { recognition.start(); } catch(e) {} }, 200); 
           } else if (!isMicActive) {
               updateButtonState("idle");
           }
@@ -356,31 +291,20 @@
           if (event.error === 'not-allowed') stopMic();
           if (micBtn.classList.contains('initializing')) stopMic();
       };
-
     } else {
         alert("Browser not supported");
     }
 
-    // --- BUTTON STYLES ---
     function updateButtonState(state) {
         micBtn.classList.remove('initializing', 'hearing', 'speaking');
         micBtn.style.backgroundColor = "#4285F4"; 
-        
-        if (state === "initializing") {
-            micBtn.classList.add('initializing');
-        } 
-        else if (state === "hearing") {
-            micBtn.classList.add('hearing');
-        } 
-        else if (state === "speaking") {
-            micBtn.classList.add('speaking'); 
-        }
+        if (state === "initializing") micBtn.classList.add('initializing');
+        else if (state === "hearing") micBtn.classList.add('hearing');
+        else if (state === "speaking") micBtn.classList.add('speaking');
     }
 
-    // --- RESPONSE HANDLING ---
     window.addEventListener('df-response-received', (event) => {
         clearTimeout(safetyResetTimer);
-
         let botText = "";
         if (event.detail.messages) {
             const msg = event.detail.messages.find(m => m.type === 'text');
@@ -413,15 +337,12 @@
     function speakText(text) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
-        
         if (availableVoices.length === 0) availableVoices = window.speechSynthesis.getVoices();
         let v = availableVoices.find(v => v.name.includes("Google") && v.name.includes("US"));
         if (!v) v = availableVoices.find(v => v.lang.includes("en-"));
         if (v) utterance.voice = v;
-        
         utterance.onend = () => { resetProcessingState(); };
         utterance.onerror = () => { resetProcessingState(); };
-
         window.speechSynthesis.speak(utterance);
     }
 
@@ -438,10 +359,10 @@
         muteBtn.classList.toggle('muted', isMuted);
         if (isMuted) window.speechSynthesis.cancel();
     });
-
   </script>
 </body>
 </html>
+
 
 
 

@@ -236,6 +236,218 @@
           }
       }
 
+      // --- ON START (The Crucial Fix) ---
+      // We only switch to "Hearing" (Red) when the browser confirms it is listening.
+      recognition.onstart = () => {
+          onMicStartSuccess();
+      };
+
+      function onMicStartSuccess() {
+          isMicActive = true;
+          lastTranscript = "";
+          transcriptBox.innerText = "Listening...";
+          updateButtonState("hearing"); // NOW it is red
+          startConversationTimer();
+      }
+
+      function stopMic() {
+          isMicActive = false;
+          clearTimeout(conversationTimeoutTimer);
+          clearTimeout(safetyResetTimer);
+          transcriptBox.style.display = "none";
+          recognition.stop();
+          window.speechSynthesis.cancel(); 
+          updateButtonState("idle"); 
+      }
+
+      recognition.onresult = (event) => {
+        if (isProcessing) return; 
+
+        const results = event.results;
+        const latestResult = results[results.length - 1];
+        let transcript = latestResult[0].transcript.toLowerCase().trim();
+        const cleanTranscript = transcript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+
+        // Prevent processing the exact same interim string twice
+        if (transcript === lastTranscript) return;
+        lastTranscript = transcript;
+        
+        clearTimeout(commandTimer);
+        const time = new Date().toLocaleTimeString().split(' ')[0];
+
+        // Reset conversation timer on every speech event
+        startConversationTimer();
+
+        let command = transcript;
+        
+        // Optional: Strip "Alice" if present, but not required
+        const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
+        if (detectedVariant) {
+            const parts = transcript.split(new RegExp(detectedVariant, 'i'));
+            command = parts[parts.length - 1].trim();
+        }
+
+        command = command.replace(/^[^a-zA-Z0-9]+/, '');
+
+        if (command.length > 0) {
+            transcriptBox.innerText = `[${time}] Heard: "${command}"...`;
+
+            if (EXIT_COMMANDS.includes(command)) {
+                    endConversationMode("User ended session");
+                    return;
+            }
+
+            // Wait 800ms for silence, then send
+            commandTimer = setTimeout(() => {
+                executeCommand(command);
+            }, STABILITY_DELAY);
+        }
+      };
+
+      function executeCommand(text) {
+          if (isProcessing || text.length < 1) return; 
+          
+          isProcessing = true; 
+          updateButtonState("speaking");
+          transcriptBox.innerText = `Sent: "${text}"`;
+          
+          console.log("SENDING:", text);
+          recognition.stop(); 
+
+          clearTimeout(safetyResetTimer);
+          safetyResetTimer = setTimeout(() => {
+              console.warn("Watchdog: No response. Resetting.");
+              resetProcessingState(); 
+          }, 6000);
+          
+          dfMessenger.setAttribute('expand', 'true');
+          dfMessenger.renderCustomText(text, true);
+          dfMessenger.sendRequest("query", text);
+      }
+
+      function startConversationTimer() {
+          clearTimeout(conversationTimeoutTimer);
+          conversationTimeoutTimer = setTimeout(() => {
+              endConversationMode("Timeout");
+          }, CONVERSATION_TIMEOUT_MS);
+      }
+
+      function endConversationMode(reason) {
+          console.log("Session Ended:", reason);
+          stopMic(); 
+      }
+
+      function resetProcessingState() {
+          isProcessing = false; 
+          clearTimeout(safetyResetTimer);
+          
+          if (isMicActive) {
+             setTimeout(() => {
+                 console.log("Restarting Mic...");
+                 lastTranscript = ""; 
+                 try { recognition.start(); } catch(e) {}
+                 // We rely on onstart to flip the UI back to Red
+             }, 200);
+          }
+      }
+
+      recognition.onend = () => {
+          if (isMicActive && !isProcessing) {
+              setTimeout(() => {
+                  try { recognition.start(); } catch(e) {}
+              }, 200); 
+          } else if (!isMicActive) {
+              updateButtonState("idle");
+          }
+      };
+
+      recognition.onerror = (event) => {
+          if (event.error === 'not-allowed') stopMic();
+          // If error occurs during start-up, reset button
+          if (micBtn.classList.contains('initializing')) stopMic();
+      };
+
+    } else {
+        alert("Browser not supported");
+    }
+
+    // --- BUTTON STYLES ---
+    function updateButtonState(state) {
+        micBtn.classList.remove('initializing', 'hearing', 'speaking');
+        micBtn.style.backgroundColor = "#4285F4"; 
+        
+        if (state === "initializing") micBtn.classList.add('initializing');
+        else if (state === "hearing") micBtn.classList.add('hearing');
+        else if (state === "speaking") micBtn.classList.add('speaking');
+    }
+
+    // --- RESPONSE HANDLING ---
+    window.addEventListener('df-response-received', (event) => {
+        clearTimeout(safetyResetTimer);
+
+        let botText = "";
+        if (event.detail.messages) {
+            const msg = event.detail.messages.find(m => m.type === 'text');
+            if (msg) botText = msg.text;
+        }
+        if (!botText && event.detail.raw && event.detail.raw.queryResult) {
+            const qr = event.detail.raw.queryResult;
+            if (qr.responseMessages) {
+                const txt = qr.responseMessages.find(m => m.text);
+                if (txt) botText = txt.text.text[0];
+            } else if (qr.fulfillmentText) botText = qr.fulfillmentText;
+        }
+
+        if (botText && !isMuted) {
+            transcriptBox.innerText = "Alice is speaking (Tap MIC to Interrupt)...";
+            speakText(botText);
+        } else {
+            resetProcessingState();
+        }
+
+        if (event.detail.raw && event.detail.raw.queryResult) {
+            const msgs = event.detail.raw.queryResult.responseMessages || event.detail.raw.queryResult.fulfillmentMessages;
+            if (msgs) {
+                const audioMsg = msgs.find(m => m.payload && m.payload.audioUrl);
+                if (audioMsg && !isMuted) playAudioFile(audioMsg.payload.audioUrl);
+            }
+        }
+    });
+
+    function speakText(text) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        
+        if (availableVoices.length === 0) availableVoices = window.speechSynthesis.getVoices();
+        let v = availableVoices.find(v => v.name.includes("Google") && v.name.includes("US"));
+        if (!v) v = availableVoices.find(v => v.lang.includes("en-"));
+        if (v) utterance.voice = v;
+        
+        utterance.onend = () => { resetProcessingState(); };
+        utterance.onerror = () => { resetProcessingState(); };
+
+        window.speechSynthesis.speak(utterance);
+    }
+
+    function playAudioFile(url) {
+        const audio = new Audio(url);
+        audio.onended = resetProcessingState;
+        audio.onerror = resetProcessingState;
+        audio.play();
+    }
+
+    muteBtn.addEventListener('click', () => {
+        isMuted = !isMuted;
+        muteBtn.textContent = isMuted ? "🔇" : "🔊";
+        muteBtn.classList.toggle('muted', isMuted);
+        if (isMuted) window.speechSynthesis.cancel();
+    });
+
+  </script>
+</body>
+</html>
+
+
 
 
 

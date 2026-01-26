@@ -1,16 +1,13 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Nuclear Force Open1)</title>
+  <title>Alice Agent (Iron Grip Open)</title>
 
   <script>
-    try {
-      localStorage.removeItem('df-messenger-state');
-      localStorage.removeItem('df-messenger-settings');
-    } catch(e) {}
+    localStorage.removeItem('df-messenger-state');
+    localStorage.removeItem('df-messenger-settings');
   </script>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
@@ -72,54 +69,39 @@
 <body>
 
   <script>
-    // This loop runs every 50ms to hunt for the widget
-    const nuclearOpenLoop = setInterval(() => {
+    // We start this loop immediately. It will run every 100ms.
+    let attempts = 0;
+    const ironGripLoop = setInterval(() => {
+        attempts++;
         const dfMessenger = document.querySelector('df-messenger');
         
-        // Check if the Shadow DOM is accessible
         if (dfMessenger && dfMessenger.shadowRoot) {
             const shadow = dfMessenger.shadowRoot;
+            const wrapper = shadow.querySelector('.chat-wrapper');
             
-            // --- INJECT FORCE-OPEN CSS ---
-            // If we haven't injected our styles yet, do it now.
-            if (!shadow.querySelector('#nuclear-open-style')) {
-                console.log("☢️ Injecting Nuclear CSS...");
-                const style = document.createElement('style');
-                style.id = 'nuclear-open-style';
-                
-                // This CSS overrides ALL internal hiding logic
-                style.textContent = `
-                    .chat-wrapper { 
-                        display: flex !important;
-                        visibility: visible !important;
-                        opacity: 1 !important;
-                        bottom: 0px !important;
-                        height: var(--df-messenger-chat-window-height) !important;
-                        width: var(--df-messenger-chat-window-width) !important;
-                        transform: none !important;
-                        pointer-events: all !important;
-                    }
-                `;
-                shadow.appendChild(style);
+            // --- THE DIRECT OVERRIDE ---
+            if (wrapper) {
+                // If it's not visible, we FORCE it visible via inline styles.
+                // This overrides any internal JS that tries to set display:none
+                if (wrapper.style.display !== 'flex') {
+                    console.log(`[Attempt ${attempts}] forcing display: flex`);
+                    wrapper.style.setProperty('display', 'flex', 'important');
+                    wrapper.style.setProperty('visibility', 'visible', 'important');
+                    wrapper.style.setProperty('opacity', '1', 'important');
+                    wrapper.style.setProperty('bottom', '0px', 'important');
+                    wrapper.classList.add('chat-open'); // Add the class just in case
+                }
             }
             
-            // --- BACKUP: ATTRIBUTE FORCE ---
+            // Also keep forcing the attribute
             if (dfMessenger.getAttribute('expand') !== 'true') {
                  dfMessenger.setAttribute('expand', 'true');
             }
-
-            // --- STOPPING CONDITION ---
-            // If we see the chat wrapper is visible, we can relax the check speed
-            const wrapper = shadow.querySelector('.chat-wrapper');
-            if (wrapper && window.getComputedStyle(wrapper).display !== 'none') {
-                console.log("✅ Widget confirmed open.");
-                clearInterval(nuclearOpenLoop);
-            }
         }
-    }, 50); // Check VERY fast (50ms)
-
-    // Stop checking after 10 seconds to save battery
-    setTimeout(() => clearInterval(nuclearOpenLoop), 10000);
+        
+        // Run this enforcement for 5 seconds to beat any race conditions
+        if (attempts > 50) clearInterval(ironGripLoop);
+    }, 100);
   </script>
 
   <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
@@ -132,7 +114,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="ALICE-voice"
+      chat-title="alice-iron-grip"
       chat-title-icon="">
     </df-messenger-chat-bubble>
   </df-messenger>

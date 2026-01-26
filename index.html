@@ -1,13 +1,16 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Trojan Horse Open)</title>
+  <title>Alice Agent (Nuclear Force Open1)</title>
 
   <script>
-    localStorage.removeItem('df-messenger-state');
-    localStorage.removeItem('df-messenger-settings');
+    try {
+      localStorage.removeItem('df-messenger-state');
+      localStorage.removeItem('df-messenger-settings');
+    } catch(e) {}
   </script>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
@@ -69,46 +72,54 @@
 <body>
 
   <script>
-    window.addEventListener('df-messenger-loaded', () => {
+    // This loop runs every 50ms to hunt for the widget
+    const nuclearOpenLoop = setInterval(() => {
         const dfMessenger = document.querySelector('df-messenger');
-        console.log("✅ Widget Loaded.");
-
-        // STRATEGY 1: The Trojan Horse
-        // We inject a message. The widget MUST open to show it.
-        // We wrap it in a timeout to ensure the widget is ready to render.
-        setTimeout(() => {
-            console.log("🐎 Sending Trojan Horse Message...");
-            try {
-                // "true" as the second argument means 'isUserMessage'. 
-                // We use 'false' (bot message) so it looks like a welcome prompt.
-                dfMessenger.renderCustomText("Hi! I am listening.", false);
-                dfMessenger.setAttribute('expand', 'true');
-            } catch (e) { console.log(e); }
-        }, 1000);
-
-        // STRATEGY 2: The Click Loop (Backup)
-        let attempts = 0;
-        const openLoop = setInterval(() => {
-            attempts++;
+        
+        // Check if the Shadow DOM is accessible
+        if (dfMessenger && dfMessenger.shadowRoot) {
             const shadow = dfMessenger.shadowRoot;
-            if (shadow) {
-                const wrapper = shadow.querySelector('.chat-wrapper');
-                // Check if hidden
-                if (wrapper && (wrapper.style.display === 'none' || !wrapper.classList.contains('chat-open'))) {
-                    console.log(`[Attempt ${attempts}] Widget closed. Clicking...`);
-                    const bubble = shadow.querySelector('df-messenger-chat-bubble');
-                    if (bubble) bubble.click();
-                    // Also try finding the icon button specifically
-                    const icon = shadow.querySelector('#widgetIcon');
-                    if(icon) icon.click();
-                } else {
-                    console.log("✨ Widget is OPEN.");
-                    clearInterval(openLoop);
-                }
+            
+            // --- INJECT FORCE-OPEN CSS ---
+            // If we haven't injected our styles yet, do it now.
+            if (!shadow.querySelector('#nuclear-open-style')) {
+                console.log("☢️ Injecting Nuclear CSS...");
+                const style = document.createElement('style');
+                style.id = 'nuclear-open-style';
+                
+                // This CSS overrides ALL internal hiding logic
+                style.textContent = `
+                    .chat-wrapper { 
+                        display: flex !important;
+                        visibility: visible !important;
+                        opacity: 1 !important;
+                        bottom: 0px !important;
+                        height: var(--df-messenger-chat-window-height) !important;
+                        width: var(--df-messenger-chat-window-width) !important;
+                        transform: none !important;
+                        pointer-events: all !important;
+                    }
+                `;
+                shadow.appendChild(style);
             }
-            if (attempts > 40) clearInterval(openLoop); // Stop after 4 seconds
-        }, 100);
-    });
+            
+            // --- BACKUP: ATTRIBUTE FORCE ---
+            if (dfMessenger.getAttribute('expand') !== 'true') {
+                 dfMessenger.setAttribute('expand', 'true');
+            }
+
+            // --- STOPPING CONDITION ---
+            // If we see the chat wrapper is visible, we can relax the check speed
+            const wrapper = shadow.querySelector('.chat-wrapper');
+            if (wrapper && window.getComputedStyle(wrapper).display !== 'none') {
+                console.log("✅ Widget confirmed open.");
+                clearInterval(nuclearOpenLoop);
+            }
+        }
+    }, 50); // Check VERY fast (50ms)
+
+    // Stop checking after 10 seconds to save battery
+    setTimeout(() => clearInterval(nuclearOpenLoop), 10000);
   </script>
 
   <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
@@ -121,7 +132,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-trojan-horse"
+      chat-title="alice-nuclear"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>

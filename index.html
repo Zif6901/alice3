@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Interrupt & Listen)</title>
+  <title>Alice Agent (Push to Talk)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -44,12 +44,6 @@
 
     #voice-trigger-btn:hover {
       transform: scale(1.1);
-    }
-
-    /* STATE: ARMED (Green) - Waiting for 'Alice' */
-    #voice-trigger-btn.armed {
-      background-color: #34A853 !important;
-      animation: pulse-green 2s infinite;
     }
 
     /* STATE: HEARING / ACTIVE (Red) - Listening for Command */
@@ -121,12 +115,6 @@
       pointer-events: none; 
       transition: opacity 0.3s ease;
     }
-
-    @keyframes pulse-green {
-      0% { box-shadow: 0 0 0 0 rgba(52, 168, 83, 0.7); }
-      70% { box-shadow: 0 0 0 10px rgba(52, 168, 83, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(52, 168, 83, 0); }
-    }
     
     @keyframes pulse-red {
       0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); }
@@ -153,7 +141,7 @@
 
   <div id="live-transcript">Listening...</div>
   <button id="mute-btn" title="Toggle Sound Response">🔊</button>
-  <button id="voice-trigger-btn" title="Click to Arm 'Alice'">🎙️</button>
+  <button id="voice-trigger-btn" title="Click to Speak">🎙️</button>
 
   <script>
     const dfMessenger = document.querySelector('df-messenger');
@@ -162,6 +150,7 @@
     const transcriptBox = document.getElementById('live-transcript');
     
     // --- SETTINGS ---
+    // Note: We keep variants to strip them if the user says them, but they are not required.
     const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
     
@@ -181,7 +170,6 @@
     let safetyResetTimer = null; 
     
     let lastTranscript = "";
-    let wakeWordDetected = false;
 
     // Load voices
     const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };
@@ -210,10 +198,7 @@
             // A. Cancel Audio
             window.speechSynthesis.cancel();
             
-            // B. Force "Wake" state so we listen immediately
-            wakeWordDetected = true; 
-            
-            // C. Reset the system to listen mode
+            // B. Reset the system to listen mode immediately
             resetProcessingState();
             return;
         }
@@ -232,14 +217,12 @@
           
           lastTranscript = "";
           transcriptBox.style.display = "block";
-
-          if (wakeWordDetected) {
-               transcriptBox.innerText = "🟢 Ready (Conversation)...";
-               updateButtonState("hearing");
-          } else {
-               transcriptBox.innerText = "Waiting for 'Alice'...";
-               updateButtonState("armed");
-          }
+          
+          // NO WAKE WORD CHECK: Go straight to Hearing
+          transcriptBox.innerText = "Listening...";
+          updateButtonState("hearing");
+          
+          startConversationTimer();
           
           try { recognition.start(); } catch(e) {}
       }
@@ -268,46 +251,35 @@
         clearTimeout(commandTimer);
         const time = new Date().toLocaleTimeString().split(' ')[0];
 
-        // 1. Check Wake Word (if needed)
-        if (!wakeWordDetected) {
-            const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
-            if (detectedVariant) {
-                wakeWordDetected = true;
-                startConversationTimer();
-            }
+        // --- DIRECT PROCESSING (No Wake Word Required) ---
+        updateButtonState("hearing");
+        startConversationTimer(); // Reset timeout on every speech event
+
+        let command = transcript;
+        
+        // Optional: If user DOES say "Alice...", strip it out so we send clean text
+        const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
+        if (detectedVariant) {
+            const parts = transcript.split(new RegExp(detectedVariant, 'i'));
+            command = parts[parts.length - 1].trim();
         }
 
-        // 2. Process Command
-        if (wakeWordDetected) {
-            updateButtonState("hearing");
-            startConversationTimer();
+        // Clean up leading non-alphanumeric chars
+        command = command.replace(/^[^a-zA-Z0-9]+/, '');
 
-            let command = transcript;
-            const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
-            
-            if (detectedVariant) {
-                const parts = transcript.split(new RegExp(detectedVariant, 'i'));
-                command = parts[parts.length - 1].trim();
+        if (command.length > 1) {
+            transcriptBox.innerText = `[${time}] Heard: "${command}"...`;
+
+            if (EXIT_COMMANDS.includes(command)) {
+                    endConversationMode("User ended session");
+                    return;
             }
 
-            command = command.replace(/^[^a-zA-Z0-9]+/, '');
-
-            if (command.length > 1) {
-                transcriptBox.innerText = `[${time}] Command: "${command}"...`;
-
-                if (EXIT_COMMANDS.includes(command)) {
-                     endConversationMode("User ended session");
-                     return;
-                }
-
-                commandTimer = setTimeout(() => {
-                    executeCommand(command);
-                }, STABILITY_DELAY);
-            } else {
-                transcriptBox.innerText = `[${time}] Listening...`;
-            }
+            commandTimer = setTimeout(() => {
+                executeCommand(command);
+            }, STABILITY_DELAY);
         } else {
-             transcriptBox.innerText = `[${time}] Heard: "${transcript}"`;
+            transcriptBox.innerText = `[${time}] Listening...`;
         }
       };
 
@@ -342,11 +314,7 @@
 
       function endConversationMode(reason) {
           console.log("Session Ended:", reason);
-          wakeWordDetected = false;
-          if (isMicActive && !isProcessing) {
-               updateButtonState("armed"); 
-               transcriptBox.innerText = "Waiting for 'Alice'...";
-          }
+          stopMic(); // Actually stop the mic on timeout
       }
 
       // --- RESET FUNCTION (Called after audio or interrupt) ---
@@ -361,14 +329,10 @@
                  
                  try { recognition.start(); } catch(e) {}
                  
-                 // If we interrupted, we stay in "Hearing" mode
-                 if (wakeWordDetected) {
-                     updateButtonState("hearing");
-                     transcriptBox.innerText = "🟢 Ready (Listening)...";
-                 } else {
-                     updateButtonState("armed");
-                     transcriptBox.innerText = "Waiting for 'Alice'...";
-                 }
+                 updateButtonState("hearing");
+                 transcriptBox.innerText = "Listening...";
+                 startConversationTimer();
+                 
              }, 200);
           }
       }
@@ -393,11 +357,10 @@
 
     // --- BUTTON STYLES ---
     function updateButtonState(state) {
-        micBtn.classList.remove('armed', 'hearing', 'speaking');
+        micBtn.classList.remove('hearing', 'speaking');
         micBtn.style.backgroundColor = "#4285F4"; 
         
-        if (state === "armed") micBtn.classList.add('armed');
-        else if (state === "hearing") micBtn.classList.add('hearing');
+        if (state === "hearing") micBtn.classList.add('hearing');
         else if (state === "speaking") micBtn.classList.add('speaking');
     }
 
@@ -478,6 +441,7 @@
   </script>
 </body>
 </html>
+
 
 
 

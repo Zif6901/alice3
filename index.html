@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Auto-Expand Fixed)</title>
+  <title>Alice Agent (Force Open)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -21,9 +20,8 @@
       --df-messenger-message-bot-background: #fff;
       
       /* --- INCREASED SIZE --- */
-      /* These variables control the open window size */
-      --df-messenger-chat-window-height: 80vh; /* 80% of screen height */
-      --df-messenger-chat-window-width: 500px; /* Wider width */
+      --df-messenger-chat-window-height: 80vh; 
+      --df-messenger-chat-window-width: 500px; 
       
       bottom: 16px;
       right: 16px;
@@ -33,13 +31,13 @@
     #voice-trigger-btn {
       position: fixed;
       bottom: 20px;        
-      right: 90px; /* Moved slightly to avoid overlapping the larger chat */          
+      right: 90px;         
       z-index: 1000;
       width: 50px;
       height: 50px;
       border-radius: 50%;
       border: none;
-      background-color: #4285F4; /* Default Blue */
+      background-color: #4285F4;
       color: white;
       font-size: 24px;
       cursor: pointer;
@@ -55,24 +53,22 @@
       transform: scale(1.1);
     }
 
-    /* --- STATE 1: INITIALIZING (Yellow Static) --- */
+    /* STATES */
     #voice-trigger-btn.initializing {
       background-color: #FBBC05 !important;
       cursor: wait;
     }
 
-    /* --- STATE 2: HEARING / LISTENING (Red Pulse) --- */
     #voice-trigger-btn.hearing {
       background-color: #EA4335 !important;
       box-shadow: 0 0 15px #EA4335;
       animation: pulse-red 1.5s infinite;
     }
 
-    /* --- STATE 3: SPEAKING / BUSY (Yellow Flash) --- */
     #voice-trigger-btn.speaking {
       background-color: #FBBC05 !important; 
       color: #fff;
-      cursor: pointer; /* Indicates clickable to interrupt */
+      cursor: pointer;
       animation: pulse-ring-yellow 1.5s infinite, flash-opacity 1.5s infinite; 
     }
 
@@ -163,7 +159,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-auto-expand"
+      chat-title="alice-force-open"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -181,11 +177,7 @@
     // --- SETTINGS ---
     const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
-    
-    // --- DELAY: 400ms (Fast) ---
     const STABILITY_DELAY = 400; 
-    
-    // Keep conversation open for 25s
     const CONVERSATION_TIMEOUT_MS = 25000; 
     
     let isMicActive = false;
@@ -196,43 +188,35 @@
     let commandTimer = null; 
     let conversationTimeoutTimer = null; 
     let safetyResetTimer = null; 
-    
     let lastTranscript = "";
 
-    // --- ROBUST AUTO-EXPAND LOGIC ---
-    // 1. Try immediately
-    dfMessenger.setAttribute('expand', 'true');
+    // --- FORCE OPEN LOGIC ---
+    // This loop checks every 100ms if the shadow DOM is ready. 
+    // Once found, it forces the 'expand' attribute and stops checking.
+    const forceOpenInterval = setInterval(() => {
+        if (dfMessenger && dfMessenger.shadowRoot) {
+            console.log("DfMessenger Ready - Forcing Expand");
+            dfMessenger.setAttribute('expand', 'true');
+            
+            // Double check: sometimes the attribute needs a toggle
+            if (dfMessenger.getAttribute('expand') !== 'true') {
+                 dfMessenger.setAttribute('expand', 'true');
+            }
+            
+            clearInterval(forceOpenInterval);
+        }
+    }, 100);
 
-    // 2. Listen for the load event
-    window.addEventListener('df-messenger-loaded', function (event) {
+    // Stop trying after 5 seconds to save resources
+    setTimeout(() => clearInterval(forceOpenInterval), 5000);
+
+    // Also listen for the official event
+    window.addEventListener('df-messenger-loaded', () => {
         dfMessenger.setAttribute('expand', 'true');
     });
 
-    // 3. Aggressive polling for the first 3 seconds to guarantee it opens
-    // This fixes the race condition where the script loads faster than the DOM
-    let checkCount = 0;
-    const expandInterval = setInterval(() => {
-        checkCount++;
-        const shadow = dfMessenger.shadowRoot;
-        
-        // If shadow root exists, the component is ready
-        if (shadow) {
-            dfMessenger.setAttribute('expand', 'true');
-            
-            // Optional: Force custom width inside shadow DOM if CSS variables fail
-            const wrapper = shadow.querySelector('.chat-wrapper');
-            if (wrapper) {
-               // This confirms it's open
-               clearInterval(expandInterval);
-            }
-        }
-        
-        // Stop checking after 3 seconds
-        if (checkCount > 10) clearInterval(expandInterval);
-    }, 300);
 
-
-    // Load voices
+    // --- SPEECH LOGIC ---
     const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };
     window.speechSynthesis.onvoiceschanged = loadVoices;
     loadVoices();
@@ -245,21 +229,18 @@
       recognition.interimResults = true; 
       recognition.lang = 'en-US';
 
-      // --- CLICK HANDLER ---
+      // CLICK HANDLER
       micBtn.addEventListener('click', () => {
-        // 1. Mobile unlock
         const unlock = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(unlock);
 
-        // 2. INTERRUPT LOGIC:
         if (isProcessing) {
             console.log("👆 User Interrupted Audio!");
             window.speechSynthesis.cancel();
-            resetProcessingState(); // Restarts Mic (Red)
+            resetProcessingState(); 
             return;
         }
 
-        // 3. Normal Toggle (Blue <-> Red)
         if (isMicActive) {
             stopMic();
         } else {
@@ -290,7 +271,7 @@
       function onMicStartSuccess() {
           isMicActive = true;
           transcriptBox.innerText = "Listening...";
-          updateButtonState("hearing"); // Turns Red
+          updateButtonState("hearing"); 
           startConversationTimer();
       }
 
@@ -301,21 +282,18 @@
           transcriptBox.style.display = "none";
           recognition.stop();
           window.speechSynthesis.cancel(); 
-          updateButtonState("idle"); // Turns Blue
+          updateButtonState("idle"); 
       }
 
-      // --- SPEECH RESULT HANDLER ---
       recognition.onresult = (event) => {
         if (isProcessing) return; 
 
         const results = event.results;
         const latestResult = results[results.length - 1];
         
-        // 1. Basic Cleaning
         let transcript = latestResult[0].transcript.toLowerCase().trim();
         const cleanTranscript = transcript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
         
-        // 2. Handle Wake Word
         let command = transcript;
         const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
         if (detectedVariant) {
@@ -324,14 +302,12 @@
         }
         command = command.replace(/^[^a-zA-Z0-9]+/, '');
 
-        // 3. CRITICAL: Automatic Send on 'isFinal'
         if (latestResult.isFinal && command.length > 0) {
             transcriptBox.innerText = `Confirmed: "${command}"`;
             executeCommand(command); 
             return;
         }
 
-        // 4. Duplicate Guard (Interim results)
         if (transcript === lastTranscript) return;
         lastTranscript = transcript;
         
@@ -346,7 +322,6 @@
                     return;
             }
 
-            // Fallback Timer
             clearTimeout(commandTimer);
             commandTimer = setTimeout(() => {
                 executeCommand(command);
@@ -362,7 +337,6 @@
           isProcessing = true; 
           lastTranscript = "";
 
-          // --- STATE CHANGE: SPEAKING ---
           updateButtonState("speaking");
           transcriptBox.innerText = `Sent: "${text}"`;
           
@@ -392,7 +366,6 @@
           stopMic(); 
       }
 
-      // --- RESET STATE (The Loop) ---
       function resetProcessingState() {
           isProcessing = false; 
           clearTimeout(safetyResetTimer);
@@ -437,7 +410,7 @@
             micBtn.classList.add('hearing');
         } 
         else if (state === "speaking") {
-            micBtn.classList.add('speaking'); // Yellow Flash
+            micBtn.classList.add('speaking'); 
         }
     }
 
@@ -506,6 +479,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 

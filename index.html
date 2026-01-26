@@ -3,11 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (CSS God Mode)</title>
+  <title>Alice Agent (Correct Load Order)</title>
 
   <script>
-    localStorage.removeItem('df-messenger-state');
-    localStorage.removeItem('df-messenger-settings');
+    console.log("🧹 1. Wiping History...");
+    try {
+      localStorage.removeItem('df-messenger-state');
+      localStorage.removeItem('df-messenger-settings');
+    } catch(e) {}
   </script>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
@@ -69,50 +72,46 @@
 <body>
 
   <script>
-    // This function recursively hunts for the widget and modifies its internal CSS
-    function forceWidgetOpen() {
+    window.addEventListener('df-messenger-loaded', function (event) {
+        console.log("✅ 3. Widget Loaded. Executing Force Open...");
         const dfMessenger = document.querySelector('df-messenger');
         
-        if (dfMessenger && dfMessenger.shadowRoot) {
-            const shadow = dfMessenger.shadowRoot;
-            
-            // Check if our force-style is already there
-            if (!shadow.querySelector('#god-mode-style')) {
-                console.log("⚡ Injecting CSS God Mode...");
-                
-                const style = document.createElement('style');
-                style.id = 'god-mode-style';
-                
-                // This CSS overrides the internal logic. 
-                // It says: "I don't care if you think you are closed, DISPLAY yourself."
-                style.textContent = `
-                    .chat-wrapper { 
-                        display: flex !important;
-                        visibility: visible !important;
-                        opacity: 1 !important;
-                        bottom: 0px !important;
-                        z-index: 9999 !important;
-                    }
-                    /* Ensure the toggle icon doesn't overlap weirdly */
-                    .df-messenger-wrapper {
-                        z-index: 9999 !important;
-                    }
-                `;
-                shadow.appendChild(style);
-                
-                // Also force the attribute for good measure
-                dfMessenger.setAttribute('expand', 'true');
-            }
-        } else {
-            // If shadow root isn't ready, try again in 50ms
-            setTimeout(forceWidgetOpen, 50);
-        }
-    }
+        // METHOD A: The "Welcome Message" Trick
+        // Sending a message from the bot forces the window to open to show it.
+        // We render it locally without sending it to the server.
+        setTimeout(() => {
+            try {
+                dfMessenger.renderCustomText("Hello! I am listening.", true);
+                console.log("🔹 Rendered Custom Text (Should force open)");
+            } catch (e) { console.log("Render failed", e); }
+        }, 500);
 
-    // Start the hunt immediately
-    window.addEventListener('load', forceWidgetOpen);
-    // Also listen for the official event just in case
-    window.addEventListener('df-messenger-loaded', forceWidgetOpen);
+        // METHOD B: The "Shadow Click" Loop
+        let attempts = 0;
+        const openLoop = setInterval(() => {
+            attempts++;
+            const shadow = dfMessenger.shadowRoot;
+            if (shadow) {
+                // Ensure attribute is set
+                dfMessenger.setAttribute('expand', 'true');
+
+                // Find internal wrapper
+                const wrapper = shadow.querySelector('.chat-wrapper');
+                
+                // If wrapper is hidden, CLICK the bubble
+                if (wrapper && (wrapper.style.display === 'none' || !wrapper.classList.contains('chat-open'))) {
+                    console.log("🔸 Widget closed. Clicking icon...");
+                    const bubble = shadow.querySelector('df-messenger-chat-bubble');
+                    if (bubble) bubble.click();
+                } else {
+                    // It is open!
+                    console.log("✨ Widget is OPEN.");
+                    clearInterval(openLoop);
+                }
+            }
+            if (attempts > 10) clearInterval(openLoop); // Stop after 5 seconds
+        }, 500);
+    });
   </script>
 
   <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
@@ -125,7 +124,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-god-mode"
+      chat-title="alice-auto"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -135,12 +134,13 @@
   <button id="voice-trigger-btn" title="Click to Speak">🎙️</button>
 
   <script>
-    // --- STANDARD APP LOGIC ---
+    console.log("🚀 2. App Initializing...");
     const micBtn = document.getElementById('voice-trigger-btn');
     const muteBtn = document.getElementById('mute-btn');
     const transcriptBox = document.getElementById('live-transcript');
     const dfMessenger = document.querySelector('df-messenger');
 
+    // --- STANDARD APP LOGIC ---
     const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
     const STABILITY_DELAY = 400; 

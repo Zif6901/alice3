@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Force Open)</title>
+  <title>Alice Agent (Auto-Open Fixed)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -53,7 +53,6 @@
       transform: scale(1.1);
     }
 
-    /* STATES */
     #voice-trigger-btn.initializing {
       background-color: #FBBC05 !important;
       cursor: wait;
@@ -127,7 +126,6 @@
       transition: opacity 0.3s ease;
     }
     
-    /* ANIMATIONS */
     @keyframes pulse-red {
       0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); }
       70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
@@ -159,7 +157,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-force-open"
+      chat-title="alice-click-fix"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -174,7 +172,41 @@
     const muteBtn = document.getElementById('mute-btn');
     const transcriptBox = document.getElementById('live-transcript');
     
-    // --- SETTINGS ---
+    // --- 1. NUCLEAR OPTION: CLEAR MEMORY ---
+    // Clears the browser's memory of you "closing" the chat previously
+    try {
+        localStorage.removeItem('df-messenger-settings'); 
+        localStorage.removeItem('df-messenger-state');
+    } catch(e) {}
+
+    // --- 2. NUCLEAR OPTION: SIMULATED CLICK ---
+    // This loop waits for the icon to exist, then physically clicks it via code
+    const checkAndClickInterval = setInterval(() => {
+        if (dfMessenger && dfMessenger.shadowRoot) {
+            // Find the button inside the shadow DOM
+            const bubble = dfMessenger.shadowRoot.querySelector('df-messenger-chat-bubble');
+            const wrapper = dfMessenger.shadowRoot.querySelector('.chat-wrapper');
+            
+            // If the wrapper is NOT visible/expanded...
+            if (wrapper && (wrapper.style.display === 'none' || !wrapper.classList.contains('expanded'))) {
+                console.log("Forcing Click on Bubble...");
+                if (bubble) bubble.click(); // CLICK IT!
+                
+                // Backup: Set attribute if click failed
+                dfMessenger.setAttribute('expand', 'true');
+            } else {
+                // It is open! We can stop checking.
+                console.log("Widget is open.");
+                clearInterval(checkAndClickInterval);
+            }
+        }
+    }, 500); // Check every half second
+
+    // Stop trying after 5 seconds to save CPU
+    setTimeout(() => clearInterval(checkAndClickInterval), 5000);
+
+
+    // --- STANDARD SETTINGS ---
     const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
     const STABILITY_DELAY = 400; 
@@ -190,33 +222,6 @@
     let safetyResetTimer = null; 
     let lastTranscript = "";
 
-    // --- FORCE OPEN LOGIC ---
-    // This loop checks every 100ms if the shadow DOM is ready. 
-    // Once found, it forces the 'expand' attribute and stops checking.
-    const forceOpenInterval = setInterval(() => {
-        if (dfMessenger && dfMessenger.shadowRoot) {
-            console.log("DfMessenger Ready - Forcing Expand");
-            dfMessenger.setAttribute('expand', 'true');
-            
-            // Double check: sometimes the attribute needs a toggle
-            if (dfMessenger.getAttribute('expand') !== 'true') {
-                 dfMessenger.setAttribute('expand', 'true');
-            }
-            
-            clearInterval(forceOpenInterval);
-        }
-    }, 100);
-
-    // Stop trying after 5 seconds to save resources
-    setTimeout(() => clearInterval(forceOpenInterval), 5000);
-
-    // Also listen for the official event
-    window.addEventListener('df-messenger-loaded', () => {
-        dfMessenger.setAttribute('expand', 'true');
-    });
-
-
-    // --- SPEECH LOGIC ---
     const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };
     window.speechSynthesis.onvoiceschanged = loadVoices;
     loadVoices();
@@ -479,6 +484,7 @@
   </script>
 </body>
 </html>
+
 
 
 

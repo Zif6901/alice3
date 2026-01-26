@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Force Open)</title>
+  <title>Alice Agent Voice</title>
 
   <script>
-    console.log("🧹 Wiping Dialogflow Memory...");
-    localStorage.removeItem('df-messenger-state');
-    localStorage.removeItem('df-messenger-settings');
+    try {
+        localStorage.removeItem('df-messenger-state');
+        localStorage.removeItem('df-messenger-settings');
+    } catch(e) { console.error(e); }
   </script>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
@@ -69,6 +70,34 @@
 </head>
 <body>
 
+  <script>
+    window.addEventListener('df-messenger-loaded', function () {
+        console.log("✅ Event Received: df-messenger-loaded");
+        
+        const dfMessenger = document.querySelector('df-messenger');
+        
+        // Wait 1 second for the Shadow DOM to fully hydrate
+        setTimeout(() => {
+            console.log("⚡ Executing Force Open...");
+            
+            // Strategy 1: Attribute
+            dfMessenger.setAttribute('expand', 'true');
+
+            // Strategy 2: Click Simulation
+            const shadow = dfMessenger.shadowRoot;
+            if (shadow) {
+                const bubble = shadow.querySelector('df-messenger-chat-bubble');
+                if (bubble) {
+                    console.log("🖱️ Clicking Bubble...");
+                    bubble.click(); 
+                } else {
+                    console.log("❌ Could not find bubble in shadow DOM");
+                }
+            }
+        }, 1000); 
+    });
+  </script>
+
   <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
    
   <df-messenger
@@ -79,7 +108,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-auto"
+      chat-title="alice-final-fix"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -89,49 +118,12 @@
   <button id="voice-trigger-btn" title="Click to Speak">🎙️</button>
 
   <script>
-    const dfMessenger = document.querySelector('df-messenger');
+    // --- APP LOGIC BELOW ---
     const micBtn = document.getElementById('voice-trigger-btn');
     const muteBtn = document.getElementById('mute-btn');
     const transcriptBox = document.getElementById('live-transcript');
+    const dfMessenger = document.querySelector('df-messenger');
 
-    // --- 3. FORCE OPEN LOGIC ---
-    // We listen for the widget to load, then use multiple strategies to open it.
-    
-    window.addEventListener('df-messenger-loaded', function () {
-        console.log("✅ Widget Loaded. Forcing Open...");
-
-        // Strategy A: Render a fake 'Welcome' message.
-        // This usually forces the window to pop open to show the text.
-        try {
-            // dfMessenger.renderCustomText("Welcome! I am ready.", false); 
-        } catch(e) {}
-
-        // Strategy B: The Attribute
-        dfMessenger.setAttribute('expand', 'true');
-
-        // Strategy C: The "Persistent Clicker" (The fail-safe)
-        let attempts = 0;
-        const openerInterval = setInterval(() => {
-            attempts++;
-            const shadow = dfMessenger.shadowRoot;
-            if (shadow) {
-                const wrapper = shadow.querySelector('.chat-wrapper');
-                // Check if HIDDEN
-                if (wrapper && (wrapper.style.display === 'none' || !wrapper.classList.contains('chat-open'))) {
-                     console.log(`[Attempt ${attempts}] Widget closed. Clicking icon...`);
-                     const bubble = shadow.querySelector('df-messenger-chat-bubble');
-                     if (bubble) bubble.click();
-                     dfMessenger.setAttribute('expand', 'true');
-                } else {
-                     console.log("✨ Widget is OPEN.");
-                     clearInterval(openerInterval);
-                }
-            }
-            if(attempts > 20) clearInterval(openerInterval); // Stop after 10s
-        }, 500);
-    });
-
-    // --- STANDARD APP LOGIC ---
     const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
     const STABILITY_DELAY = 400; 
@@ -362,6 +354,7 @@
   </script>
 </body>
 </html>
+
 
 
 

@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Instant Listen)</title>
+  <title>Alice Agent (Debug Mode)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
     /* Widget Styling */
     df-messenger {
-      z-index: 999;
+      z-index: 100; /* Lowered z-index to ensure button is on top */
       position: fixed;
       --df-messenger-font-color: #000;
       --df-messenger-font-family: Google Sans;
@@ -25,7 +25,7 @@
       position: fixed;
       bottom: 20px;       
       right: 90px;        
-      z-index: 1000;
+      z-index: 99999; /* Super high z-index to ensure clickability */
       width: 50px;
       height: 50px;
       border-radius: 50%;
@@ -38,22 +38,23 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.3s ease;
+      transition: all 0.2s ease;
       outline: none;
+      user-select: none;
     }
 
-    #voice-trigger-btn:hover {
-      transform: scale(1.1);
+    #voice-trigger-btn:active {
+      transform: scale(0.9); /* Visual feedback when you physically click */
     }
 
-    /* STATE: INITIALIZING (Orange/Pulse) - Waiting for browser */
+    /* STATE: INITIALIZING (Yellow) */
     #voice-trigger-btn.initializing {
       background-color: #FBBC05 !important;
       animation: pulse-yellow 1s infinite;
       cursor: wait;
     }
 
-    /* STATE: HEARING / ACTIVE (Red) - Actually Recording */
+    /* STATE: HEARING / ACTIVE (Red) */
     #voice-trigger-btn.hearing {
       background-color: #EA4335 !important;
       box-shadow: 0 0 15px #EA4335;
@@ -90,11 +91,6 @@
       transition: all 0.2s ease;
       outline: none;
     }
-
-    #mute-btn:hover {
-      background-color: #e8eaed;
-      transform: scale(1.1);
-    }
     
     #mute-btn.muted {
       background-color: #fce8e6;
@@ -121,7 +117,6 @@
       overflow: hidden;
       text-overflow: ellipsis;
       pointer-events: none; 
-      transition: opacity 0.3s ease;
     }
     
     @keyframes pulse-red {
@@ -157,19 +152,19 @@
   <button id="voice-trigger-btn" title="Click to Speak">🎙️</button>
 
   <script>
+    // --- 1. SECURITY CHECK ---
+    if (window.location.protocol === 'file:') {
+       alert("⚠️ SECURITY ERROR:\n\nYou are running this file directly from your computer (file://).\n\nBrowsers BLOCK microphone access in this mode.\n\nPlease open this file through a local server (localhost) or upload it to a secure website (https).");
+    }
+
     const dfMessenger = document.querySelector('df-messenger');
     const micBtn = document.getElementById('voice-trigger-btn');
     const muteBtn = document.getElementById('mute-btn');
     const transcriptBox = document.getElementById('live-transcript');
     
-    // --- SETTINGS ---
-    const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
+    // Settings
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
-    
-    // REDUCED DELAY: 800ms (was 1200ms) to catch commands faster
     const STABILITY_DELAY = 800; 
-    
-    // Keep conversation open for 25s
     const CONVERSATION_TIMEOUT_MS = 25000; 
     
     let isMicActive = false;
@@ -180,17 +175,17 @@
     let commandTimer = null; 
     let conversationTimeoutTimer = null; 
     let safetyResetTimer = null; 
-    
     let lastTranscript = "";
 
-    // Load voices
     const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };
     window.speechSynthesis.onvoiceschanged = loadVoices;
     loadVoices();
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-    if (SpeechRecognition) {
+    if (!SpeechRecognition) {
+       alert("Your browser does not support Speech Recognition. Please use Chrome, Edge, or Safari.");
+    } else {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;  
       recognition.interimResults = true; 
@@ -198,19 +193,18 @@
 
       // --- CLICK HANDLER ---
       micBtn.addEventListener('click', () => {
-        // 1. Mobile unlock (keep this for iOS/Android)
+        console.log("Button Clicked"); // Debug log
+
+        // 1. Mobile unlock
         const unlock = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(unlock);
 
-        // 2. Interrupt if speaking
         if (isProcessing) {
-            console.log("👆 User Interrupted Audio!");
             window.speechSynthesis.cancel();
             resetProcessingState();
             return;
         }
 
-        // 3. Toggle Mic
         if (isMicActive) {
             stopMic();
         } else {
@@ -219,26 +213,23 @@
       });
 
       function startMic() {
-          if (isProcessing) return; 
-          
-          // Show "Initializing" (Yellow) immediately so user knows it registered the click
+          console.log("Attempting to start Mic...");
           updateButtonState("initializing");
           transcriptBox.style.display = "block";
-          transcriptBox.innerText = "Starting Mic...";
+          transcriptBox.innerText = "Requesting Access...";
 
           try { 
               recognition.start(); 
           } catch(e) {
-              // If already started, force UI update
+              console.error("Mic Start Error:", e);
               if(e.message && e.message.includes('started')) {
                   onMicStartSuccess();
               }
           }
       }
 
-      // --- ON START (The Crucial Fix) ---
-      // We only switch to "Hearing" (Red) when the browser confirms it is listening.
       recognition.onstart = () => {
+          console.log("Mic Started Successfully");
           onMicStartSuccess();
       };
 
@@ -246,19 +237,34 @@
           isMicActive = true;
           lastTranscript = "";
           transcriptBox.innerText = "Listening...";
-          updateButtonState("hearing"); // NOW it is red
+          updateButtonState("hearing"); 
           startConversationTimer();
       }
 
       function stopMic() {
+          console.log("Stopping Mic");
           isMicActive = false;
           clearTimeout(conversationTimeoutTimer);
-          clearTimeout(safetyResetTimer);
           transcriptBox.style.display = "none";
           recognition.stop();
           window.speechSynthesis.cancel(); 
           updateButtonState("idle"); 
       }
+
+      // --- ERROR HANDLING (DEBUGGING) ---
+      recognition.onerror = (event) => {
+          console.error("Speech Error:", event.error);
+          
+          if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+             alert("⚠️ MICROPHONE BLOCKED\n\nPlease check:\n1. Did you click 'Allow'?\n2. Is your browser blocking the mic?\n3. Are you on HTTPS?");
+             stopMic();
+          } else if (event.error === 'no-speech') {
+             // Ignore 'no-speech' errors, just keep listening or let timeout handle it
+          } else {
+             // Other errors (network, etc)
+             stopMic();
+          }
+      };
 
       recognition.onresult = (event) => {
         if (isProcessing) return; 
@@ -266,38 +272,22 @@
         const results = event.results;
         const latestResult = results[results.length - 1];
         let transcript = latestResult[0].transcript.toLowerCase().trim();
-        const cleanTranscript = transcript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
+        let command = transcript.replace(/^[^a-zA-Z0-9]+/, '');
 
-        // Prevent processing the exact same interim string twice
-        if (transcript === lastTranscript) return;
-        lastTranscript = transcript;
+        if (command === lastTranscript) return;
+        lastTranscript = command;
         
         clearTimeout(commandTimer);
-        const time = new Date().toLocaleTimeString().split(' ')[0];
-
-        // Reset conversation timer on every speech event
         startConversationTimer();
 
-        let command = transcript;
-        
-        // Optional: Strip "Alice" if present, but not required
-        const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
-        if (detectedVariant) {
-            const parts = transcript.split(new RegExp(detectedVariant, 'i'));
-            command = parts[parts.length - 1].trim();
-        }
-
-        command = command.replace(/^[^a-zA-Z0-9]+/, '');
-
         if (command.length > 0) {
-            transcriptBox.innerText = `[${time}] Heard: "${command}"...`;
+            transcriptBox.innerText = `Heard: "${command}"...`;
 
             if (EXIT_COMMANDS.includes(command)) {
                     endConversationMode("User ended session");
                     return;
             }
 
-            // Wait 800ms for silence, then send
             commandTimer = setTimeout(() => {
                 executeCommand(command);
             }, STABILITY_DELAY);
@@ -311,14 +301,7 @@
           updateButtonState("speaking");
           transcriptBox.innerText = `Sent: "${text}"`;
           
-          console.log("SENDING:", text);
           recognition.stop(); 
-
-          clearTimeout(safetyResetTimer);
-          safetyResetTimer = setTimeout(() => {
-              console.warn("Watchdog: No response. Resetting.");
-              resetProcessingState(); 
-          }, 6000);
           
           dfMessenger.setAttribute('expand', 'true');
           dfMessenger.renderCustomText(text, true);
@@ -339,14 +322,10 @@
 
       function resetProcessingState() {
           isProcessing = false; 
-          clearTimeout(safetyResetTimer);
-          
           if (isMicActive) {
              setTimeout(() => {
-                 console.log("Restarting Mic...");
                  lastTranscript = ""; 
                  try { recognition.start(); } catch(e) {}
-                 // We rely on onstart to flip the UI back to Red
              }, 200);
           }
       }
@@ -360,15 +339,6 @@
               updateButtonState("idle");
           }
       };
-
-      recognition.onerror = (event) => {
-          if (event.error === 'not-allowed') stopMic();
-          // If error occurs during start-up, reset button
-          if (micBtn.classList.contains('initializing')) stopMic();
-      };
-
-    } else {
-        alert("Browser not supported");
     }
 
     // --- BUTTON STYLES ---
@@ -383,8 +353,6 @@
 
     // --- RESPONSE HANDLING ---
     window.addEventListener('df-response-received', (event) => {
-        clearTimeout(safetyResetTimer);
-
         let botText = "";
         if (event.detail.messages) {
             const msg = event.detail.messages.find(m => m.type === 'text');
@@ -392,48 +360,24 @@
         }
         if (!botText && event.detail.raw && event.detail.raw.queryResult) {
             const qr = event.detail.raw.queryResult;
-            if (qr.responseMessages) {
-                const txt = qr.responseMessages.find(m => m.text);
-                if (txt) botText = txt.text.text[0];
-            } else if (qr.fulfillmentText) botText = qr.fulfillmentText;
+            if (qr.fulfillmentText) botText = qr.fulfillmentText;
         }
 
         if (botText && !isMuted) {
-            transcriptBox.innerText = "Alice is speaking (Tap MIC to Interrupt)...";
+            transcriptBox.innerText = "Alice is speaking...";
             speakText(botText);
         } else {
             resetProcessingState();
-        }
-
-        if (event.detail.raw && event.detail.raw.queryResult) {
-            const msgs = event.detail.raw.queryResult.responseMessages || event.detail.raw.queryResult.fulfillmentMessages;
-            if (msgs) {
-                const audioMsg = msgs.find(m => m.payload && m.payload.audioUrl);
-                if (audioMsg && !isMuted) playAudioFile(audioMsg.payload.audioUrl);
-            }
         }
     });
 
     function speakText(text) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
-        
-        if (availableVoices.length === 0) availableVoices = window.speechSynthesis.getVoices();
         let v = availableVoices.find(v => v.name.includes("Google") && v.name.includes("US"));
-        if (!v) v = availableVoices.find(v => v.lang.includes("en-"));
         if (v) utterance.voice = v;
-        
         utterance.onend = () => { resetProcessingState(); };
-        utterance.onerror = () => { resetProcessingState(); };
-
         window.speechSynthesis.speak(utterance);
-    }
-
-    function playAudioFile(url) {
-        const audio = new Audio(url);
-        audio.onended = resetProcessingState;
-        audio.onerror = resetProcessingState;
-        audio.play();
     }
 
     muteBtn.addEventListener('click', () => {
@@ -446,6 +390,7 @@
   </script>
 </body>
 </html>
+
 
 
 

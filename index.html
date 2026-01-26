@@ -3,11 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (CSS Force Open)</title>
+  <title>Alice Agent (Click-Until-Open)</title>
 
   <script>
-    localStorage.removeItem('df-messenger-state');
-    localStorage.removeItem('df-messenger-settings');
+    console.log("🧹 Wiping all Dialogflow history...");
+    Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('df-messenger')) {
+            localStorage.removeItem(key);
+        }
+    });
   </script>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
@@ -69,51 +73,49 @@
 <body>
 
   <script>
-    // This function recursively hunts for the widget and modifies its internal CSS
-    function injectForceOpenCSS() {
+    // This script starts running immediately, looking for the widget
+    let openAttempts = 0;
+    
+    const checkAndClick = setInterval(() => {
+        openAttempts++;
         const dfMessenger = document.querySelector('df-messenger');
-        
+
         if (dfMessenger && dfMessenger.shadowRoot) {
             const shadow = dfMessenger.shadowRoot;
-            
-            // Check if our force-style is already there. If not, inject it.
-            if (!shadow.querySelector('#force-open-style')) {
-                console.log("⚡ Injecting CSS to Force Widget Open...");
+            const wrapper = shadow.querySelector('.chat-wrapper');
+            const bubble = shadow.querySelector('df-messenger-chat-bubble');
+
+            // -- VISIBILITY CHECK --
+            // offsetParent is null if the element is hidden (display:none)
+            const isClosed = !wrapper || wrapper.style.display === 'none' || wrapper.offsetParent === null;
+
+            if (isClosed) {
+                console.log(`[Attempt ${openAttempts}] Widget is closed. Clicking...`);
                 
-                const style = document.createElement('style');
-                style.id = 'force-open-style';
-                
-                // This CSS overrides the internal logic. 
-                // It says: "I don't care if you think you are closed, DISPLAY yourself."
-                style.textContent = `
-                    .chat-wrapper { 
-                        display: flex !important;
-                        visibility: visible !important;
-                        opacity: 1 !important;
-                        bottom: 0px !important;
-                        height: var(--df-messenger-chat-window-height) !important;
-                        width: var(--df-messenger-chat-window-width) !important;
-                        transform: none !important;
-                    }
-                `;
-                shadow.appendChild(style);
-                
-                // Also force the attribute for good measure
+                // 1. Force Attribute
                 dfMessenger.setAttribute('expand', 'true');
+                
+                // 2. Click Bubble
+                if (bubble) {
+                    bubble.click();
+                } else {
+                    // Sometimes bubble is inside a different container in Shadow DOM
+                    const icon = shadow.querySelector('#widgetIcon'); 
+                    if(icon) icon.click();
+                }
+            } else {
+                // IT IS OPEN!
+                console.log("✅ Widget is visually open. Stopping loop.");
+                clearInterval(checkAndClick);
             }
-        } else {
-            // If shadow root isn't ready, try again in 50ms
-            setTimeout(injectForceOpenCSS, 50);
         }
-    }
 
-    // Start the hunt immediately (and keep trying until it succeeds)
-    window.addEventListener('load', injectForceOpenCSS);
-    
-    // Also try periodically for the first 2 seconds just in case
-    const safetyInterval = setInterval(injectForceOpenCSS, 200);
-    setTimeout(() => clearInterval(safetyInterval), 3000);
-
+        // Stop trying after 5 seconds (50 attempts * 100ms)
+        if (openAttempts > 50) {
+            console.log("⚠️ Stopped trying to force open.");
+            clearInterval(checkAndClick);
+        }
+    }, 100); // Check every 100ms
   </script>
 
   <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
@@ -126,7 +128,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-css-force"
+      chat-title="alice-force"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -136,7 +138,7 @@
   <button id="voice-trigger-btn" title="Click to Speak">🎙️</button>
 
   <script>
-    // --- STANDARD APP LOGIC ---
+    // --- APP LOGIC ---
     const micBtn = document.getElementById('voice-trigger-btn');
     const muteBtn = document.getElementById('mute-btn');
     const transcriptBox = document.getElementById('live-transcript');
@@ -372,6 +374,7 @@
   </script>
 </body>
 </html>
+
 
 
 

@@ -117,7 +117,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="ALICE-Voice"
+      chat-title="ALICE-Voice-v2"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -135,7 +135,7 @@
 
     // --- CONFIGURATION ---
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
-    const STABILITY_DELAY = 1200; // 1.2 Seconds of silence triggers auto-send
+    const STABILITY_DELAY = 1200; // 1.2s Silence = Auto Send
     const CONVERSATION_TIMEOUT_MS = 25000; 
     
     let isMicActive = false;
@@ -146,9 +146,10 @@
     let commandTimer = null; 
     let conversationTimeoutTimer = null; 
     let safetyResetTimer = null; 
-    
-    // NEW: Tracks if we have "unsent" text
     let pendingTranscript = "";
+
+    // Audio Context for Beep
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
     const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };
     window.speechSynthesis.onvoiceschanged = loadVoices;
@@ -162,12 +163,12 @@
       recognition.interimResults = true; 
       recognition.lang = 'en-US';
 
-      // --- BUTTON CLICK LOGIC (THE FIX) ---
+      // --- BUTTON CLICK ---
       micBtn.addEventListener('click', () => {
-        const unlock = new SpeechSynthesisUtterance('');
-        window.speechSynthesis.speak(unlock);
+        // NOTE: We REMOVED the speechSynthesis unlock here.
+        // It causes the 'First Command' delay issue.
         
-        // 1. If currently speaking response, interrupt.
+        // 1. Interrupt Speaking
         if (isProcessing) {
             console.log("👆 User Interrupted Audio!");
             window.speechSynthesis.cancel();
@@ -175,23 +176,28 @@
             return;
         }
 
-        // 2. SAFETY VALVE: If we have text waiting, FORCE SEND IT.
+        // 2. Safety Valve: Force Send
         if (isMicActive && pendingTranscript.length > 1) {
              console.log("👆 Manual Push Triggered");
              executeCommand(pendingTranscript);
              return;
         }
 
-        // 3. Otherwise, just toggle Mic on/off normally
+        // 3. Toggle Mic
         if (isMicActive) stopMic(); else startMic();
       });
 
       function startMic() {
           if (isProcessing) return; 
+          
+          // Resume AudioContext (Browser Policy)
+          if (audioCtx.state === 'suspended') audioCtx.resume();
+
           pendingTranscript = "";
           updateButtonState("initializing");
           transcriptBox.style.display = "block";
           transcriptBox.innerText = "Starting Mic...";
+          
           try { recognition.start(); } catch(e) {
               if(e.message && e.message.includes('started')) onMicStartSuccess();
           }
@@ -201,16 +207,31 @@
 
       function onMicStartSuccess() {
           isMicActive = true;
+          playReadyBeep(); // SIGNAL THE USER TO SPEAK
           transcriptBox.innerText = "Listening...";
           updateButtonState("hearing"); 
           startConversationTimer();
+      }
+
+      function playReadyBeep() {
+          try {
+              const oscillator = audioCtx.createOscillator();
+              const gainNode = audioCtx.createGain();
+              oscillator.connect(gainNode);
+              gainNode.connect(audioCtx.destination);
+              oscillator.type = 'sine';
+              oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // A4 Tone
+              gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+              oscillator.start();
+              oscillator.stop(audioCtx.currentTime + 0.15); // Short 150ms beep
+          } catch(e) {}
       }
 
       function stopMic() {
           isMicActive = false;
           clearTimeout(conversationTimeoutTimer);
           clearTimeout(safetyResetTimer);
-          clearTimeout(commandTimer); // Only clear timer if we are truly stopping without sending
+          clearTimeout(commandTimer);
           transcriptBox.style.display = "none";
           recognition.stop();
           window.speechSynthesis.cancel(); 
@@ -223,62 +244,46 @@
         
         const results = event.results;
         const latestResult = results[results.length - 1];
-        
-        // 1. Get Text
         let transcript = latestResult[0].transcript;
         let command = transcript.replace(/^[^a-zA-Z0-9]+/, '').trim();
 
-        // 2. Ignore garbage
         if (command.length < 2) return;
 
-        // 3. Store in Safety Buffer (so button click knows what to send)
         pendingTranscript = command;
 
-        // 4. Update Visuals
         const time = new Date().toLocaleTimeString().split(' ')[0];
         transcriptBox.innerText = `[${time}] Heard: "${command}"...`;
 
-        // 5. Check Exit
         if (EXIT_COMMANDS.includes(command.toLowerCase())) {
             endConversationMode("User ended session");
             return;
         }
 
-        // 6. Reset "Mic Open" Timeout
         startConversationTimer();
 
-        // 7. AUTO-SEND TIMER
-        // Send if silent for 1.2s OR if Browser says "isFinal" (with short buffer)
         clearTimeout(commandTimer);
-        
         const waitTime = latestResult.isFinal ? 400 : STABILITY_DELAY;
-        
-        commandTimer = setTimeout(() => { 
-            executeCommand(command); 
-        }, waitTime);
+        commandTimer = setTimeout(() => { executeCommand(command); }, waitTime);
       };
 
       function executeCommand(text) {
           clearTimeout(commandTimer); 
-          
           if (isProcessing || text.length < 2) return; 
           
           isProcessing = true; 
-          pendingTranscript = ""; // Clear buffer
+          pendingTranscript = ""; 
           updateButtonState("speaking");
           transcriptBox.innerText = `Sent: "${text}"`;
           console.log("SENDING:", text);
           
           recognition.stop(); 
 
-          // Watchdog
           clearTimeout(safetyResetTimer);
           safetyResetTimer = setTimeout(() => {
               console.warn("Watchdog: No response. Resetting.");
               resetProcessingState(); 
           }, 6000);
           
-          // Send to Dialogflow
           dfMessenger.setAttribute('expand', 'true');
           dfMessenger.renderCustomText(text, true);
           dfMessenger.sendRequest("query", text);

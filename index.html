@@ -117,7 +117,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="ALICE-Voice-v2"
+      chat-title="ALICE-Voice-v3"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -148,9 +148,6 @@
     let safetyResetTimer = null; 
     let pendingTranscript = "";
 
-    // Audio Context for Beep
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
     const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };
     window.speechSynthesis.onvoiceschanged = loadVoices;
     loadVoices();
@@ -165,8 +162,7 @@
 
       // --- BUTTON CLICK ---
       micBtn.addEventListener('click', () => {
-        // NOTE: We REMOVED the speechSynthesis unlock here.
-        // It causes the 'First Command' delay issue.
+        // CLEAN START: No beep, no unlock, just logic.
         
         // 1. Interrupt Speaking
         if (isProcessing) {
@@ -190,15 +186,13 @@
       function startMic() {
           if (isProcessing) return; 
           
-          // Resume AudioContext (Browser Policy)
-          if (audioCtx.state === 'suspended') audioCtx.resume();
-
           pendingTranscript = "";
           updateButtonState("initializing");
           transcriptBox.style.display = "block";
           transcriptBox.innerText = "Starting Mic...";
           
           try { recognition.start(); } catch(e) {
+              // If already started, we just sync up
               if(e.message && e.message.includes('started')) onMicStartSuccess();
           }
       }
@@ -207,24 +201,9 @@
 
       function onMicStartSuccess() {
           isMicActive = true;
-          playReadyBeep(); // SIGNAL THE USER TO SPEAK
           transcriptBox.innerText = "Listening...";
           updateButtonState("hearing"); 
           startConversationTimer();
-      }
-
-      function playReadyBeep() {
-          try {
-              const oscillator = audioCtx.createOscillator();
-              const gainNode = audioCtx.createGain();
-              oscillator.connect(gainNode);
-              gainNode.connect(audioCtx.destination);
-              oscillator.type = 'sine';
-              oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // A4 Tone
-              gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-              oscillator.start();
-              oscillator.stop(audioCtx.currentTime + 0.15); // Short 150ms beep
-          } catch(e) {}
       }
 
       function stopMic() {
@@ -245,8 +224,11 @@
         const results = event.results;
         const latestResult = results[results.length - 1];
         let transcript = latestResult[0].transcript;
+        
+        // Remove noise/special chars
         let command = transcript.replace(/^[^a-zA-Z0-9]+/, '').trim();
 
+        // Must be at least 2 chars
         if (command.length < 2) return;
 
         pendingTranscript = command;
@@ -262,6 +244,9 @@
         startConversationTimer();
 
         clearTimeout(commandTimer);
+        
+        // If the browser says it's final, we send faster (400ms). 
+        // If not, we wait for the full stability delay (1.2s).
         const waitTime = latestResult.isFinal ? 400 : STABILITY_DELAY;
         commandTimer = setTimeout(() => { executeCommand(command); }, waitTime);
       };
@@ -394,6 +379,7 @@
   </script>
 </body>
 </html>
+
 
 
 

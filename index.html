@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Smart Auto-Expand)</title>
+  <title>Alice Agent (State Enforcer)</title>
 
   <script>
     localStorage.removeItem('df-messenger-state');
@@ -28,15 +28,6 @@
       
       bottom: 16px;
       right: 16px;
-    }
-
-    /* Hide the default chat bubble if we want to force the window open immediately 
-       (Optional: prevents the flicker of the small icon) */
-    df-messenger:not([expanded=true]) {
-        visibility: hidden; /* Hide until we force it open */
-    }
-    df-messenger[expanded=true] {
-        visibility: visible;
     }
 
     /* Microphone Button */
@@ -78,56 +69,46 @@
 <body>
 
   <script>
-    // This script runs independently and monitors the widget's physical state
-    const enforcerInterval = setInterval(() => {
+    // This script monitors the widget continuously
+    let checks = 0;
+    const enforcer = setInterval(() => {
+        checks++;
         const dfMessenger = document.querySelector('df-messenger');
         
         if (dfMessenger && dfMessenger.shadowRoot) {
             const shadow = dfMessenger.shadowRoot;
             
-            // Check the internal 'expanded' attribute and height
-            const isExpanded = dfMessenger.getAttribute('expand') === 'true';
-            
-            // Get the Chat Wrapper (Window) and Bubble (Icon)
+            // Look for the chat wrapper
             const wrapper = shadow.querySelector('.chat-wrapper');
             const bubble = shadow.querySelector('df-messenger-chat-bubble');
-            const iconButton = shadow.querySelector('#widgetIcon');
 
-            // --- CONDITION: IS IT CLOSED? ---
-            // If the wrapper is missing, or display is none, OR the 'expand' attribute is missing...
-            if (!isExpanded || (wrapper && wrapper.style.display === 'none')) {
+            // --- CHECK IF CLOSED ---
+            // We check if wrapper is hidden OR if the 'expanded' class is missing
+            let isClosed = true;
+            if (wrapper) {
+                // If it has height > 0, it is open
+                if (wrapper.offsetHeight > 0 && wrapper.style.display !== 'none') {
+                    isClosed = false;
+                }
+            }
+
+            if (isClosed) {
+                console.log(`[Check ${checks}] Widget is Closed. Forcing Open...`);
                 
-                console.log("⚠️ Widget detected CLOSED. Forcing open...");
-
-                // Action 1: Force Attribute
+                // 1. Force Attribute
                 dfMessenger.setAttribute('expand', 'true');
                 
-                // Action 2: Click the Icon (The most reliable trigger)
-                // We try clicking the specific icon button first, then the general bubble
-                if (iconButton) {
-                    iconButton.click();
-                } else if (bubble) {
-                    bubble.click();
-                }
-                
-                // Action 3: Show the element (in case we hid it via CSS)
-                dfMessenger.style.visibility = 'visible';
-
+                // 2. Simulate Click (Primary trigger)
+                if (bubble) bubble.click();
             } else {
-                // --- CONDITION: IT IS OPEN! ---
-                console.log("✅ Widget detected OPEN. Success.");
-                
-                // Ensure it stays visible
-                dfMessenger.style.visibility = 'visible';
-                
-                // Stop the loop, we are done.
-                clearInterval(enforcerInterval);
+                console.log("✅ Widget is OPEN.");
+                clearInterval(enforcer); // Stop checking once successful
             }
         }
-    }, 500); // Check every half second
 
-    // Safety: Stop checking after 10 seconds
-    setTimeout(() => clearInterval(enforcerInterval), 10000);
+        // Stop checking after 5 seconds
+        if (checks > 25) clearInterval(enforcer);
+    }, 200); // Check every 200ms
   </script>
 
   <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
@@ -140,8 +121,8 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-smart-enforce"
-      chat-title-icon="">
+      chat-title="alice-enforcer"
+      chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
 
@@ -386,3 +367,4 @@
   </script>
 </body>
 </html>
+

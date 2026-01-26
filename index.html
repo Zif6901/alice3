@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Fast Mode)</title>
+  <title>Alice Agent (Large & Auto-Open)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -11,11 +11,19 @@
     df-messenger {
       z-index: 999;
       position: fixed;
+      
+      /* --- SIZE & COLORS --- */
       --df-messenger-font-color: #000;
       --df-messenger-font-family: Google Sans;
       --df-messenger-chat-background: #f3f6fc;
       --df-messenger-message-user-background: #d3e3fd;
       --df-messenger-message-bot-background: #fff;
+      
+      /* --- INCREASED SIZE --- */
+      /* These variables control the open window size */
+      --df-messenger-chat-window-height: 80vh; /* 80% of screen height */
+      --df-messenger-chat-window-width: 500px; /* Wider width */
+      
       bottom: 16px;
       right: 16px;
     }
@@ -24,7 +32,7 @@
     #voice-trigger-btn {
       position: fixed;
       bottom: 20px;        
-      right: 90px;          
+      right: 90px; /* Moved slightly to avoid overlapping the larger chat */          
       z-index: 1000;
       width: 50px;
       height: 50px;
@@ -153,7 +161,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-fast-mode"
+      chat-title="alice-large-auto"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -172,7 +180,7 @@
     const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
     
-    // --- UPDATED DELAY: 400ms (Much faster fallback) ---
+    // --- DELAY: 400ms (Fast) ---
     const STABILITY_DELAY = 400; 
     
     // Keep conversation open for 25s
@@ -188,6 +196,14 @@
     let safetyResetTimer = null; 
     
     let lastTranscript = "";
+
+    // --- AUTO OPEN CHAT ON LOAD ---
+    window.addEventListener('load', () => {
+        // Force the chat widget to expand immediately
+        setTimeout(() => {
+            dfMessenger.setAttribute('expand', 'true');
+        }, 500); // Small delay to ensure widget is loaded
+    });
 
     // Load voices
     const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };
@@ -282,7 +298,6 @@
         command = command.replace(/^[^a-zA-Z0-9]+/, '');
 
         // 3. CRITICAL: Automatic Send on 'isFinal'
-        // This usually triggers instantly when the browser detects end of sentence
         if (latestResult.isFinal && command.length > 0) {
             transcriptBox.innerText = `Confirmed: "${command}"`;
             executeCommand(command); 
@@ -304,8 +319,7 @@
                     return;
             }
 
-            // Fallback Timer: This is what catches it if 'isFinal' is slow.
-            // Reduced to 400ms for faster response.
+            // Fallback Timer
             clearTimeout(commandTimer);
             commandTimer = setTimeout(() => {
                 executeCommand(command);

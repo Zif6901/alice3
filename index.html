@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ALICE Voice Agent 1</title>
+  <title>ALICE Voice Agent</title>
 
   <script>
     try {
@@ -127,7 +127,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="ALICE-Voice"
+      chat-title="ALICE-Voice-v1"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -145,7 +145,9 @@
 
     // --- CONFIGURATION ---
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
-    const STABILITY_DELAY = 1500; // 1.5 Seconds of silence required before sending
+    
+    // ADJUSTED: 1000ms (1 second) silence triggers the send
+    const STABILITY_DELAY = 1000; 
     const CONVERSATION_TIMEOUT_MS = 25000; 
     
     let isMicActive = false;
@@ -156,8 +158,7 @@
     let commandTimer = null; 
     let conversationTimeoutTimer = null; 
     let safetyResetTimer = null; 
-    let lastTranscript = "";
-
+    
     const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };
     window.speechSynthesis.onvoiceschanged = loadVoices;
     loadVoices();
@@ -170,19 +171,20 @@
       recognition.interimResults = true; 
       recognition.lang = 'en-US';
 
-      // --- BUTTON CLICK ---
+      // --- SIMPLE CLICK HANDLER ---
+      // (No "Click to Send" logic here anymore)
       micBtn.addEventListener('click', () => {
-        // Unlock Audio for Mobile
         const unlock = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(unlock);
         
-        // Interrupt if speaking
+        // Interrupt speaking
         if (isProcessing) {
             console.log("👆 User Interrupted Audio!");
             window.speechSynthesis.cancel();
             resetProcessingState(); 
             return;
         }
+
         // Toggle Mic
         if (isMicActive) stopMic(); else startMic();
       });
@@ -217,37 +219,36 @@
           updateButtonState("idle"); 
       }
 
-      // --- CORE LOGIC: NO WAKE WORD + DEBOUNCE ---
+      // --- CORE AUTO-SEND LOGIC ---
       recognition.onresult = (event) => {
         if (isProcessing) return; 
         
         const results = event.results;
         const latestResult = results[results.length - 1];
         
-        // 1. Get Raw Text
+        // 1. Get Text
         let transcript = latestResult[0].transcript;
-        
-        // 2. Clean Noise (remove special chars from start)
         let command = transcript.replace(/^[^a-zA-Z0-9]+/, '').trim();
 
-        // 3. Filter short garbage
+        // 2. Ignore garbage
         if (command.length < 2) return;
 
-        // 4. Update UI
+        // 3. Update Visuals Immediately
         const time = new Date().toLocaleTimeString().split(' ')[0];
         transcriptBox.innerText = `[${time}] Heard: "${command}"...`;
 
-        // 5. Check Local Exit
+        // 4. Check Exit
         if (EXIT_COMMANDS.includes(command.toLowerCase())) {
             endConversationMode("User ended session");
             return;
         }
 
-        // 6. Reset Timeout
+        // 5. Reset "Mic Open" Timeout
         startConversationTimer();
 
-        // 7. DEBOUNCE TIMER
-        // We do NOT use isFinal. We rely purely on the user pausing.
+        // 6. THE AUTO-SEND TIMER
+        // Every time you say a word, this timer resets.
+        // If you are silent for STABILITY_DELAY (1s), it executes.
         clearTimeout(commandTimer);
         commandTimer = setTimeout(() => { 
             executeCommand(command); 
@@ -255,11 +256,11 @@
       };
 
       function executeCommand(text) {
-          clearTimeout(commandTimer);
+          clearTimeout(commandTimer); 
+          
           if (isProcessing || text.length < 2) return; 
           
           isProcessing = true; 
-          lastTranscript = "";
           updateButtonState("speaking");
           transcriptBox.innerText = `Sent: "${text}"`;
           console.log("SENDING:", text);
@@ -273,6 +274,7 @@
               resetProcessingState(); 
           }, 6000);
           
+          // Send to Dialogflow
           dfMessenger.setAttribute('expand', 'true');
           dfMessenger.renderCustomText(text, true);
           dfMessenger.sendRequest("query", text);
@@ -291,10 +293,10 @@
       function resetProcessingState() {
           isProcessing = false; 
           clearTimeout(safetyResetTimer);
+          // Auto-restart mic for conversation flow
           if (isMicActive) {
              setTimeout(() => {
                  console.log("Restarting Mic...");
-                 lastTranscript = ""; 
                  try { recognition.start(); } catch(e) {}
              }, 200);
           }
@@ -383,5 +385,6 @@
   </script>
 </body>
 </html>
+
 
 

@@ -3,7 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Auto-Open Fixed)</title>
+  <title>Alice Agent (Bulletproof Open)</title>
+
+  <script>
+    try {
+      localStorage.removeItem('df-messenger-state');
+      localStorage.removeItem('df-messenger-settings');
+    } catch(e) { console.log(e); }
+  </script>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -12,16 +19,16 @@
       z-index: 999;
       position: fixed;
       
-      /* --- SIZE & COLORS --- */
+      /* --- COLORS --- */
       --df-messenger-font-color: #000;
       --df-messenger-font-family: Google Sans;
       --df-messenger-chat-background: #f3f6fc;
       --df-messenger-message-user-background: #d3e3fd;
       --df-messenger-message-bot-background: #fff;
       
-      /* --- INCREASED SIZE --- */
-      --df-messenger-chat-window-height: 80vh; 
-      --df-messenger-chat-window-width: 500px; 
+      /* --- FORCE SIZE (Use !important to override defaults) --- */
+      --df-messenger-chat-window-height: 80vh !important; 
+      --df-messenger-chat-window-width: 500px !important; 
       
       bottom: 16px;
       right: 16px;
@@ -157,7 +164,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-click-fix"
+      chat-title="alice-force-open"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -171,40 +178,33 @@
     const micBtn = document.getElementById('voice-trigger-btn');
     const muteBtn = document.getElementById('mute-btn');
     const transcriptBox = document.getElementById('live-transcript');
+
+    // --- 4. JS FORCE OPEN LOGIC ---
+    // If the attribute and localStorage wipe didn't work, this script physically
+    // hunts for the chat bubble inside the component and clicks it.
     
-    // --- 1. NUCLEAR OPTION: CLEAR MEMORY ---
-    // Clears the browser's memory of you "closing" the chat previously
-    try {
-        localStorage.removeItem('df-messenger-settings'); 
-        localStorage.removeItem('df-messenger-state');
-    } catch(e) {}
-
-    // --- 2. NUCLEAR OPTION: SIMULATED CLICK ---
-    // This loop waits for the icon to exist, then physically clicks it via code
-    const checkAndClickInterval = setInterval(() => {
-        if (dfMessenger && dfMessenger.shadowRoot) {
-            // Find the button inside the shadow DOM
-            const bubble = dfMessenger.shadowRoot.querySelector('df-messenger-chat-bubble');
-            const wrapper = dfMessenger.shadowRoot.querySelector('.chat-wrapper');
-            
-            // If the wrapper is NOT visible/expanded...
-            if (wrapper && (wrapper.style.display === 'none' || !wrapper.classList.contains('expanded'))) {
-                console.log("Forcing Click on Bubble...");
-                if (bubble) bubble.click(); // CLICK IT!
-                
-                // Backup: Set attribute if click failed
-                dfMessenger.setAttribute('expand', 'true');
-            } else {
-                // It is open! We can stop checking.
-                console.log("Widget is open.");
-                clearInterval(checkAndClickInterval);
+    // Wait for the component to signal it is ready
+    window.addEventListener('df-messenger-loaded', function (event) {
+        console.log("Messenger Loaded. Attempting Force Open...");
+        
+        // Method A: Set Attribute
+        dfMessenger.setAttribute('expand', 'true');
+        
+        // Method B: Click Simulation (The failsafe)
+        setTimeout(() => {
+            const shadow = dfMessenger.shadowRoot;
+            if (shadow) {
+                const wrapper = shadow.querySelector('.chat-wrapper');
+                // Check if it is currently hidden (closed)
+                if (wrapper && (wrapper.style.display === 'none' || !wrapper.classList.contains('expanded'))) {
+                    console.log("Widget closed. Clicking bubble to open...");
+                    // Try clicking the bubble element in Light DOM
+                    const bubble = document.querySelector('df-messenger-chat-bubble');
+                    if(bubble) bubble.click();
+                }
             }
-        }
-    }, 500); // Check every half second
-
-    // Stop trying after 5 seconds to save CPU
-    setTimeout(() => clearInterval(checkAndClickInterval), 5000);
-
+        }, 500);
+    });
 
     // --- STANDARD SETTINGS ---
     const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
@@ -484,6 +484,7 @@
   </script>
 </body>
 </html>
+
 
 
 

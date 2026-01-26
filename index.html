@@ -23,8 +23,8 @@
     /* Microphone Button */
     #voice-trigger-btn {
       position: fixed;
-      bottom: 20px;       
-      right: 90px;        
+      bottom: 20px;        
+      right: 90px;          
       z-index: 1000;
       width: 50px;
       height: 50px;
@@ -72,10 +72,10 @@
     /* Mute Button */
     #mute-btn {
       position: fixed;
-      bottom: 25px;       
-      right: 150px;       
+      bottom: 25px;        
+      right: 150px;        
       z-index: 1000;
-      width: 40px;   
+      width: 40px;    
       height: 40px;
       border-radius: 50%;
       border: none;
@@ -166,7 +166,7 @@
     const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
     
-    // REDUCED DELAY: 800ms (was 1200ms) to catch commands faster
+    // DELAY: Used only if isFinal is NOT detected
     const STABILITY_DELAY = 800; 
     
     // Keep conversation open for 25s
@@ -198,7 +198,7 @@
 
       // --- CLICK HANDLER ---
       micBtn.addEventListener('click', () => {
-        // 1. Mobile unlock (keep this for iOS/Android)
+        // 1. Mobile unlock
         const unlock = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(unlock);
 
@@ -221,7 +221,6 @@
       function startMic() {
           if (isProcessing) return; 
           
-          // Show "Initializing" (Yellow) immediately so user knows it registered the click
           updateButtonState("initializing");
           transcriptBox.style.display = "block";
           transcriptBox.innerText = "Starting Mic...";
@@ -229,24 +228,21 @@
           try { 
               recognition.start(); 
           } catch(e) {
-              // If already started, force UI update
               if(e.message && e.message.includes('started')) {
                   onMicStartSuccess();
               }
           }
       }
 
-      // --- ON START (The Crucial Fix) ---
-      // We only switch to "Hearing" (Red) when the browser confirms it is listening.
       recognition.onstart = () => {
           onMicStartSuccess();
       };
 
       function onMicStartSuccess() {
           isMicActive = true;
-          lastTranscript = "";
+          // Don't clear lastTranscript here; we clear it in executeCommand
           transcriptBox.innerText = "Listening...";
-          updateButtonState("hearing"); // NOW it is red
+          updateButtonState("hearing");
           startConversationTimer();
       }
 
@@ -260,34 +256,40 @@
           updateButtonState("idle"); 
       }
 
+      // --- IMPROVED RESULT HANDLER ---
       recognition.onresult = (event) => {
         if (isProcessing) return; 
 
         const results = event.results;
         const latestResult = results[results.length - 1];
+        
+        // 1. Basic Cleaning
         let transcript = latestResult[0].transcript.toLowerCase().trim();
         const cleanTranscript = transcript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-
-        // Prevent processing the exact same interim string twice
-        if (transcript === lastTranscript) return;
-        lastTranscript = transcript;
         
-        clearTimeout(commandTimer);
-        const time = new Date().toLocaleTimeString().split(' ')[0];
-
-        // Reset conversation timer on every speech event
-        startConversationTimer();
-
+        // 2. Handle Wake Word (Optional stripping)
         let command = transcript;
-        
-        // Optional: Strip "Alice" if present, but not required
         const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
         if (detectedVariant) {
             const parts = transcript.split(new RegExp(detectedVariant, 'i'));
             command = parts[parts.length - 1].trim();
         }
-
         command = command.replace(/^[^a-zA-Z0-9]+/, '');
+
+        // 3. CRITICAL: Check if the browser signals the sentence is done
+        if (latestResult.isFinal && command.length > 0) {
+            transcriptBox.innerText = `Confirmed: "${command}"`;
+            executeCommand(command); // Send immediately
+            return;
+        }
+
+        // 4. Interim Logic (Prevent Duplicate *Interim* Echoes)
+        if (transcript === lastTranscript) return;
+        lastTranscript = transcript;
+        
+        // Reset timers
+        const time = new Date().toLocaleTimeString().split(' ')[0];
+        startConversationTimer();
 
         if (command.length > 0) {
             transcriptBox.innerText = `[${time}] Heard: "${command}"...`;
@@ -297,7 +299,8 @@
                     return;
             }
 
-            // Wait 800ms for silence, then send
+            // Fallback timer: Only fires if isFinal never comes
+            clearTimeout(commandTimer);
             commandTimer = setTimeout(() => {
                 executeCommand(command);
             }, STABILITY_DELAY);
@@ -305,9 +308,16 @@
       };
 
       function executeCommand(text) {
+          // Prevent double firing if timer and isFinal hit close together
+          clearTimeout(commandTimer);
+
           if (isProcessing || text.length < 1) return; 
           
           isProcessing = true; 
+          
+          // CRITICAL: Clear memory so user can repeat this command immediately
+          lastTranscript = "";
+
           updateButtonState("speaking");
           transcriptBox.innerText = `Sent: "${text}"`;
           
@@ -346,7 +356,6 @@
                  console.log("Restarting Mic...");
                  lastTranscript = ""; 
                  try { recognition.start(); } catch(e) {}
-                 // We rely on onstart to flip the UI back to Red
              }, 200);
           }
       }
@@ -363,7 +372,6 @@
 
       recognition.onerror = (event) => {
           if (event.error === 'not-allowed') stopMic();
-          // If error occurs during start-up, reset button
           if (micBtn.classList.contains('initializing')) stopMic();
       };
 
@@ -446,6 +454,7 @@
   </script>
 </body>
 </html>
+
 
 
 

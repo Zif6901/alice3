@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Debug Mode)</title>
+  <title>Alice Agent (Push to Talk)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
     /* Widget Styling */
     df-messenger {
-      z-index: 100; /* Lowered z-index to ensure button is on top */
+      z-index: 999;
       position: fixed;
       --df-messenger-font-color: #000;
       --df-messenger-font-family: Google Sans;
@@ -25,7 +25,7 @@
       position: fixed;
       bottom: 20px;       
       right: 90px;        
-      z-index: 99999; /* Super high z-index to ensure clickability */
+      z-index: 1000;
       width: 50px;
       height: 50px;
       border-radius: 50%;
@@ -38,36 +38,27 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.2s ease;
+      transition: all 0.3s ease;
       outline: none;
-      user-select: none;
     }
 
-    #voice-trigger-btn:active {
-      transform: scale(0.9); /* Visual feedback when you physically click */
+    #voice-trigger-btn:hover {
+      transform: scale(1.1);
     }
 
-    /* STATE: INITIALIZING (Yellow) */
-    #voice-trigger-btn.initializing {
-      background-color: #FBBC05 !important;
-      animation: pulse-yellow 1s infinite;
-      cursor: wait;
-    }
-
-    /* STATE: HEARING / ACTIVE (Red) */
+    /* STATE: HEARING / ACTIVE (Red) - Listening for Command */
     #voice-trigger-btn.hearing {
       background-color: #EA4335 !important;
       box-shadow: 0 0 15px #EA4335;
       animation: pulse-red 1s infinite;
     }
 
-    /* STATE: SPEAKING/BUSY (Blue/Solid) */
+    /* STATE: SPEAKING/BUSY (Yellow) - Tap the MIC to Interrupt */
     #voice-trigger-btn.speaking {
-      background-color: #4285F4 !important;
+      background-color: #FBBC05 !important;
       animation: none;
-      box-shadow: 0 0 10px #4285F4;
-      opacity: 0.8;
-      cursor: cell; 
+      box-shadow: 0 0 10px #FBBC05;
+      cursor: cell; /* visual cue that you can click to stop */
     }
 
     /* Mute Button */
@@ -90,6 +81,11 @@
       justify-content: center;
       transition: all 0.2s ease;
       outline: none;
+    }
+
+    #mute-btn:hover {
+      background-color: #e8eaed;
+      transform: scale(1.1);
     }
     
     #mute-btn.muted {
@@ -117,17 +113,13 @@
       overflow: hidden;
       text-overflow: ellipsis;
       pointer-events: none; 
+      transition: opacity 0.3s ease;
     }
     
     @keyframes pulse-red {
       0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); }
       70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
       100% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); }
-    }
-    @keyframes pulse-yellow {
-      0% { box-shadow: 0 0 0 0 rgba(251, 188, 5, 0.7); }
-      70% { box-shadow: 0 0 0 10px rgba(251, 188, 5, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(251, 188, 5, 0); }
     }
   </style>
 </head>
@@ -147,64 +139,71 @@
     </df-messenger-chat-bubble>
   </df-messenger>
 
-  <div id="live-transcript">Initializing...</div>
+  <div id="live-transcript">Listening...</div>
   <button id="mute-btn" title="Toggle Sound Response">🔊</button>
   <button id="voice-trigger-btn" title="Click to Speak">🎙️</button>
 
   <script>
-    // --- 1. SECURITY CHECK ---
-    if (window.location.protocol === 'file:') {
-       alert("⚠️ SECURITY ERROR:\n\nYou are running this file directly from your computer (file://).\n\nBrowsers BLOCK microphone access in this mode.\n\nPlease open this file through a local server (localhost) or upload it to a secure website (https).");
-    }
-
     const dfMessenger = document.querySelector('df-messenger');
     const micBtn = document.getElementById('voice-trigger-btn');
     const muteBtn = document.getElementById('mute-btn');
     const transcriptBox = document.getElementById('live-transcript');
     
-    // Settings
+    // --- SETTINGS ---
+    // Note: We keep variants to strip them if the user says them, but they are not required.
+    const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
-    const STABILITY_DELAY = 800; 
+    
+    // Wait time after speech before sending
+    const STABILITY_DELAY = 1200; 
+    
+    // Keep conversation open for 25s
     const CONVERSATION_TIMEOUT_MS = 25000; 
     
     let isMicActive = false;
-    let isProcessing = false; 
+    let isProcessing = false; // "Processing" = Sending or Speaking
     let isMuted = false;
     let availableVoices = [];
     
     let commandTimer = null; 
     let conversationTimeoutTimer = null; 
     let safetyResetTimer = null; 
+    
     let lastTranscript = "";
 
+    // Load voices
     const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };
     window.speechSynthesis.onvoiceschanged = loadVoices;
     loadVoices();
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-    if (!SpeechRecognition) {
-       alert("Your browser does not support Speech Recognition. Please use Chrome, Edge, or Safari.");
-    } else {
+    if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
       recognition.continuous = true;  
       recognition.interimResults = true; 
       recognition.lang = 'en-US';
 
-      // --- CLICK HANDLER ---
+      // --- CLICK HANDLER (INTERRUPT LOGIC) ---
       micBtn.addEventListener('click', () => {
-        console.log("Button Clicked"); // Debug log
-
         // 1. Mobile unlock
         const unlock = new SpeechSynthesisUtterance('');
         window.speechSynthesis.speak(unlock);
 
+        // 2. CHECK: Are we currently speaking/processing?
         if (isProcessing) {
+            // --- INTERRUPT MODE ---
+            console.log("👆 User Interrupted Audio!");
+            
+            // A. Cancel Audio
             window.speechSynthesis.cancel();
+            
+            // B. Reset the system to listen mode immediately
             resetProcessingState();
             return;
         }
 
+        // 3. Normal Toggle (On/Off)
         if (isMicActive) {
             stopMic();
         } else {
@@ -213,58 +212,30 @@
       });
 
       function startMic() {
-          console.log("Attempting to start Mic...");
-          updateButtonState("initializing");
-          transcriptBox.style.display = "block";
-          transcriptBox.innerText = "Requesting Access...";
-
-          try { 
-              recognition.start(); 
-          } catch(e) {
-              console.error("Mic Start Error:", e);
-              if(e.message && e.message.includes('started')) {
-                  onMicStartSuccess();
-              }
-          }
-      }
-
-      recognition.onstart = () => {
-          console.log("Mic Started Successfully");
-          onMicStartSuccess();
-      };
-
-      function onMicStartSuccess() {
+          if (isProcessing) return; 
           isMicActive = true;
+          
           lastTranscript = "";
+          transcriptBox.style.display = "block";
+          
+          // NO WAKE WORD CHECK: Go straight to Hearing
           transcriptBox.innerText = "Listening...";
-          updateButtonState("hearing"); 
+          updateButtonState("hearing");
+          
           startConversationTimer();
+          
+          try { recognition.start(); } catch(e) {}
       }
 
       function stopMic() {
-          console.log("Stopping Mic");
           isMicActive = false;
           clearTimeout(conversationTimeoutTimer);
+          clearTimeout(safetyResetTimer);
           transcriptBox.style.display = "none";
           recognition.stop();
           window.speechSynthesis.cancel(); 
           updateButtonState("idle"); 
       }
-
-      // --- ERROR HANDLING (DEBUGGING) ---
-      recognition.onerror = (event) => {
-          console.error("Speech Error:", event.error);
-          
-          if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-             alert("⚠️ MICROPHONE BLOCKED\n\nPlease check:\n1. Did you click 'Allow'?\n2. Is your browser blocking the mic?\n3. Are you on HTTPS?");
-             stopMic();
-          } else if (event.error === 'no-speech') {
-             // Ignore 'no-speech' errors, just keep listening or let timeout handle it
-          } else {
-             // Other errors (network, etc)
-             stopMic();
-          }
-      };
 
       recognition.onresult = (event) => {
         if (isProcessing) return; 
@@ -272,16 +243,32 @@
         const results = event.results;
         const latestResult = results[results.length - 1];
         let transcript = latestResult[0].transcript.toLowerCase().trim();
-        let command = transcript.replace(/^[^a-zA-Z0-9]+/, '');
+        const cleanTranscript = transcript.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
 
-        if (command === lastTranscript) return;
-        lastTranscript = command;
+        if (transcript === lastTranscript) return;
+        lastTranscript = transcript;
         
         clearTimeout(commandTimer);
-        startConversationTimer();
+        const time = new Date().toLocaleTimeString().split(' ')[0];
 
-        if (command.length > 0) {
-            transcriptBox.innerText = `Heard: "${command}"...`;
+        // --- DIRECT PROCESSING (No Wake Word Required) ---
+        updateButtonState("hearing");
+        startConversationTimer(); // Reset timeout on every speech event
+
+        let command = transcript;
+        
+        // Optional: If user DOES say "Alice...", strip it out so we send clean text
+        const detectedVariant = WAKE_VARIANTS.find(w => cleanTranscript.includes(w));
+        if (detectedVariant) {
+            const parts = transcript.split(new RegExp(detectedVariant, 'i'));
+            command = parts[parts.length - 1].trim();
+        }
+
+        // Clean up leading non-alphanumeric chars
+        command = command.replace(/^[^a-zA-Z0-9]+/, '');
+
+        if (command.length > 1) {
+            transcriptBox.innerText = `[${time}] Heard: "${command}"...`;
 
             if (EXIT_COMMANDS.includes(command)) {
                     endConversationMode("User ended session");
@@ -291,17 +278,27 @@
             commandTimer = setTimeout(() => {
                 executeCommand(command);
             }, STABILITY_DELAY);
+        } else {
+            transcriptBox.innerText = `[${time}] Listening...`;
         }
       };
 
       function executeCommand(text) {
-          if (isProcessing || text.length < 1) return; 
+          if (isProcessing) return; 
           
           isProcessing = true; 
-          updateButtonState("speaking");
+          updateButtonState("speaking"); // Yellow
           transcriptBox.innerText = `Sent: "${text}"`;
           
+          console.log("SENDING:", text);
           recognition.stop(); 
+
+          // Watchdog: Reset if stuck for 6s
+          clearTimeout(safetyResetTimer);
+          safetyResetTimer = setTimeout(() => {
+              console.warn("Watchdog: No response. Resetting.");
+              resetProcessingState(); 
+          }, 6000);
           
           dfMessenger.setAttribute('expand', 'true');
           dfMessenger.renderCustomText(text, true);
@@ -317,15 +314,25 @@
 
       function endConversationMode(reason) {
           console.log("Session Ended:", reason);
-          stopMic(); 
+          stopMic(); // Actually stop the mic on timeout
       }
 
+      // --- RESET FUNCTION (Called after audio or interrupt) ---
       function resetProcessingState() {
           isProcessing = false; 
+          clearTimeout(safetyResetTimer);
+          
           if (isMicActive) {
              setTimeout(() => {
-                 lastTranscript = ""; 
+                 console.log("Restarting Mic...");
+                 lastTranscript = ""; // Clear buffer
+                 
                  try { recognition.start(); } catch(e) {}
+                 
+                 updateButtonState("hearing");
+                 transcriptBox.innerText = "Listening...";
+                 startConversationTimer();
+                 
              }, 200);
           }
       }
@@ -339,45 +346,89 @@
               updateButtonState("idle");
           }
       };
+
+      recognition.onerror = (event) => {
+          if (event.error === 'not-allowed') stopMic();
+      };
+
+    } else {
+        alert("Browser not supported");
     }
 
     // --- BUTTON STYLES ---
     function updateButtonState(state) {
-        micBtn.classList.remove('initializing', 'hearing', 'speaking');
+        micBtn.classList.remove('hearing', 'speaking');
         micBtn.style.backgroundColor = "#4285F4"; 
         
-        if (state === "initializing") micBtn.classList.add('initializing');
-        else if (state === "hearing") micBtn.classList.add('hearing');
+        if (state === "hearing") micBtn.classList.add('hearing');
         else if (state === "speaking") micBtn.classList.add('speaking');
     }
 
-    // --- RESPONSE HANDLING ---
+    // ---------------------------------------------------------
+    // 2. RESPONSE HANDLING
+    // ---------------------------------------------------------
     window.addEventListener('df-response-received', (event) => {
+        clearTimeout(safetyResetTimer);
+
         let botText = "";
+        
         if (event.detail.messages) {
             const msg = event.detail.messages.find(m => m.type === 'text');
             if (msg) botText = msg.text;
         }
         if (!botText && event.detail.raw && event.detail.raw.queryResult) {
             const qr = event.detail.raw.queryResult;
-            if (qr.fulfillmentText) botText = qr.fulfillmentText;
+            if (qr.responseMessages) {
+                const txt = qr.responseMessages.find(m => m.text);
+                if (txt) botText = txt.text.text[0];
+            } else if (qr.fulfillmentText) {
+                botText = qr.fulfillmentText;
+            }
         }
 
         if (botText && !isMuted) {
-            transcriptBox.innerText = "Alice is speaking...";
+            transcriptBox.innerText = "Alice is speaking (Tap the MIC to Interrupt)...";
             speakText(botText);
         } else {
             resetProcessingState();
+        }
+
+        if (event.detail.raw && event.detail.raw.queryResult) {
+            const msgs = event.detail.raw.queryResult.responseMessages || event.detail.raw.queryResult.fulfillmentMessages;
+            if (msgs) {
+                const audioMsg = msgs.find(m => m.payload && m.payload.audioUrl);
+                if (audioMsg && !isMuted) {
+                    playAudioFile(audioMsg.payload.audioUrl);
+                }
+            }
         }
     });
 
     function speakText(text) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
+        
+        if (availableVoices.length === 0) availableVoices = window.speechSynthesis.getVoices();
         let v = availableVoices.find(v => v.name.includes("Google") && v.name.includes("US"));
+        if (!v) v = availableVoices.find(v => v.lang.includes("en-"));
         if (v) utterance.voice = v;
-        utterance.onend = () => { resetProcessingState(); };
+        
+        utterance.onend = () => {
+            console.log("TTS Finished");
+            resetProcessingState(); 
+        };
+        utterance.onerror = () => {
+             resetProcessingState();
+        };
+
         window.speechSynthesis.speak(utterance);
+    }
+
+    function playAudioFile(url) {
+        const audio = new Audio(url);
+        audio.onended = resetProcessingState;
+        audio.onerror = resetProcessingState;
+        audio.play();
     }
 
     muteBtn.addEventListener('click', () => {

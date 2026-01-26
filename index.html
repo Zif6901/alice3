@@ -3,11 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (State Enforcer)</title>
+  <title>ALICE Voice Agent</title>
 
   <script>
-    localStorage.removeItem('df-messenger-state');
-    localStorage.removeItem('df-messenger-settings');
+    try {
+      localStorage.removeItem('df-messenger-state');
+      localStorage.removeItem('df-messenger-settings');
+    } catch(e) {}
   </script>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
@@ -69,46 +71,54 @@
 <body>
 
   <script>
-    // This script monitors the widget continuously
-    let checks = 0;
-    const enforcer = setInterval(() => {
-        checks++;
+    // This loop runs every 50ms to hunt for the widget
+    const nuclearOpenLoop = setInterval(() => {
         const dfMessenger = document.querySelector('df-messenger');
         
+        // Check if the Shadow DOM is accessible
         if (dfMessenger && dfMessenger.shadowRoot) {
             const shadow = dfMessenger.shadowRoot;
             
-            // Look for the chat wrapper
-            const wrapper = shadow.querySelector('.chat-wrapper');
-            const bubble = shadow.querySelector('df-messenger-chat-bubble');
-
-            // --- CHECK IF CLOSED ---
-            // We check if wrapper is hidden OR if the 'expanded' class is missing
-            let isClosed = true;
-            if (wrapper) {
-                // If it has height > 0, it is open
-                if (wrapper.offsetHeight > 0 && wrapper.style.display !== 'none') {
-                    isClosed = false;
-                }
+            // --- INJECT FORCE-OPEN CSS ---
+            // If we haven't injected our styles yet, do it now.
+            if (!shadow.querySelector('#nuclear-open-style')) {
+                console.log("☢️ Injecting Nuclear CSS...");
+                const style = document.createElement('style');
+                style.id = 'nuclear-open-style';
+                
+                // This CSS overrides ALL internal hiding logic
+                style.textContent = `
+                    .chat-wrapper { 
+                        display: flex !important;
+                        visibility: visible !important;
+                        opacity: 1 !important;
+                        bottom: 0px !important;
+                        height: var(--df-messenger-chat-window-height) !important;
+                        width: var(--df-messenger-chat-window-width) !important;
+                        transform: none !important;
+                        pointer-events: all !important;
+                    }
+                `;
+                shadow.appendChild(style);
+            }
+            
+            // --- BACKUP: ATTRIBUTE FORCE ---
+            if (dfMessenger.getAttribute('expand') !== 'true') {
+                 dfMessenger.setAttribute('expand', 'true');
             }
 
-            if (isClosed) {
-                console.log(`[Check ${checks}] Widget is Closed. Forcing Open...`);
-                
-                // 1. Force Attribute
-                dfMessenger.setAttribute('expand', 'true');
-                
-                // 2. Simulate Click (Primary trigger)
-                if (bubble) bubble.click();
-            } else {
-                console.log("✅ Widget is OPEN.");
-                clearInterval(enforcer); // Stop checking once successful
+            // --- STOPPING CONDITION ---
+            // If we see the chat wrapper is visible, we can relax the check speed
+            const wrapper = shadow.querySelector('.chat-wrapper');
+            if (wrapper && window.getComputedStyle(wrapper).display !== 'none') {
+                console.log("✅ Widget confirmed open.");
+                clearInterval(nuclearOpenLoop);
             }
         }
+    }, 50); // Check VERY fast (50ms)
 
-        // Stop checking after 5 seconds
-        if (checks > 25) clearInterval(enforcer);
-    }, 200); // Check every 200ms
+    // Stop checking after 10 seconds to save battery
+    setTimeout(() => clearInterval(nuclearOpenLoop), 10000);
   </script>
 
   <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
@@ -117,11 +127,11 @@
     expand="true"
     location="us"
     project-id="vz-nonit-np-k25v-dev-aliceg-0"
-    agent-id="3adf7da3-c967-48ee-b295-9a67c9b090fe"
+    agent-id="bc4d57c6-899b-4e4a-bc7b-9739ac8a60ed"
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-enforcer"
+      chat-title="ALICE-Voice"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -367,4 +377,3 @@
   </script>
 </body>
 </html>
-

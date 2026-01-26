@@ -3,15 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Click-Until-Open)</title>
+  <title>Alice Agent (Trojan Horse Open)</title>
 
   <script>
-    console.log("🧹 Wiping all Dialogflow history...");
-    Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('df-messenger')) {
-            localStorage.removeItem(key);
-        }
-    });
+    localStorage.removeItem('df-messenger-state');
+    localStorage.removeItem('df-messenger-settings');
   </script>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
@@ -73,49 +69,46 @@
 <body>
 
   <script>
-    // This script starts running immediately, looking for the widget
-    let openAttempts = 0;
-    
-    const checkAndClick = setInterval(() => {
-        openAttempts++;
+    window.addEventListener('df-messenger-loaded', () => {
         const dfMessenger = document.querySelector('df-messenger');
+        console.log("✅ Widget Loaded.");
 
-        if (dfMessenger && dfMessenger.shadowRoot) {
-            const shadow = dfMessenger.shadowRoot;
-            const wrapper = shadow.querySelector('.chat-wrapper');
-            const bubble = shadow.querySelector('df-messenger-chat-bubble');
-
-            // -- VISIBILITY CHECK --
-            // offsetParent is null if the element is hidden (display:none)
-            const isClosed = !wrapper || wrapper.style.display === 'none' || wrapper.offsetParent === null;
-
-            if (isClosed) {
-                console.log(`[Attempt ${openAttempts}] Widget is closed. Clicking...`);
-                
-                // 1. Force Attribute
+        // STRATEGY 1: The Trojan Horse
+        // We inject a message. The widget MUST open to show it.
+        // We wrap it in a timeout to ensure the widget is ready to render.
+        setTimeout(() => {
+            console.log("🐎 Sending Trojan Horse Message...");
+            try {
+                // "true" as the second argument means 'isUserMessage'. 
+                // We use 'false' (bot message) so it looks like a welcome prompt.
+                dfMessenger.renderCustomText("Hi! I am listening.", false);
                 dfMessenger.setAttribute('expand', 'true');
-                
-                // 2. Click Bubble
-                if (bubble) {
-                    bubble.click();
-                } else {
-                    // Sometimes bubble is inside a different container in Shadow DOM
-                    const icon = shadow.querySelector('#widgetIcon'); 
-                    if(icon) icon.click();
-                }
-            } else {
-                // IT IS OPEN!
-                console.log("✅ Widget is visually open. Stopping loop.");
-                clearInterval(checkAndClick);
-            }
-        }
+            } catch (e) { console.log(e); }
+        }, 1000);
 
-        // Stop trying after 5 seconds (50 attempts * 100ms)
-        if (openAttempts > 50) {
-            console.log("⚠️ Stopped trying to force open.");
-            clearInterval(checkAndClick);
-        }
-    }, 100); // Check every 100ms
+        // STRATEGY 2: The Click Loop (Backup)
+        let attempts = 0;
+        const openLoop = setInterval(() => {
+            attempts++;
+            const shadow = dfMessenger.shadowRoot;
+            if (shadow) {
+                const wrapper = shadow.querySelector('.chat-wrapper');
+                // Check if hidden
+                if (wrapper && (wrapper.style.display === 'none' || !wrapper.classList.contains('chat-open'))) {
+                    console.log(`[Attempt ${attempts}] Widget closed. Clicking...`);
+                    const bubble = shadow.querySelector('df-messenger-chat-bubble');
+                    if (bubble) bubble.click();
+                    // Also try finding the icon button specifically
+                    const icon = shadow.querySelector('#widgetIcon');
+                    if(icon) icon.click();
+                } else {
+                    console.log("✨ Widget is OPEN.");
+                    clearInterval(openLoop);
+                }
+            }
+            if (attempts > 40) clearInterval(openLoop); // Stop after 4 seconds
+        }, 100);
+    });
   </script>
 
   <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
@@ -128,7 +121,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-force"
+      chat-title="alice-trojan-horse"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -374,6 +367,7 @@
   </script>
 </body>
 </html>
+
 
 
 

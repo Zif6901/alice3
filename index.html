@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Large & Auto-Open)</title>
+  <title>Alice Agent (Auto-Expand Fix)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -161,7 +161,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-large-auto"
+      chat-title="alice-auto-expand"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -197,13 +197,35 @@
     
     let lastTranscript = "";
 
-    // --- AUTO OPEN CHAT ON LOAD ---
-    window.addEventListener('load', () => {
-        // Force the chat widget to expand immediately
+    // --- AUTO OPEN CHAT ON LOAD (FIXED) ---
+    // We listen for the specific event that tells us the widget is ready
+    window.addEventListener('df-messenger-loaded', () => {
+        // Wait 100ms just to be safe, then expand
         setTimeout(() => {
             dfMessenger.setAttribute('expand', 'true');
-        }, 500); // Small delay to ensure widget is loaded
+            // Also force style update just in case
+            const shadow = dfMessenger.shadowRoot;
+            if(shadow){
+                const style = document.createElement('style');
+                style.textContent = `
+                    .chat-wrapper { 
+                        height: var(--df-messenger-chat-window-height) !important; 
+                        width: var(--df-messenger-chat-window-width) !important;
+                    }
+                `;
+                shadow.appendChild(style);
+            }
+        }, 100);
     });
+    
+    // Fallback: If event missed, try periodically
+    const forceExpandInterval = setInterval(() => {
+        if(dfMessenger.shadowRoot) {
+            dfMessenger.setAttribute('expand', 'true');
+            clearInterval(forceExpandInterval);
+        }
+    }, 500);
+
 
     // Load voices
     const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };

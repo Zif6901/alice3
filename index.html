@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Auto-Expand Fix)</title>
+  <title>Alice Agent (Auto-Expand Fixed)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -155,6 +156,7 @@
   <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
    
   <df-messenger
+    expand="true"
     location="us"
     project-id="vz-nonit-np-k25v-dev-aliceg-0"
     agent-id="3adf7da3-c967-48ee-b295-9a67c9b090fe"
@@ -197,34 +199,37 @@
     
     let lastTranscript = "";
 
-    // --- AUTO OPEN CHAT ON LOAD (FIXED) ---
-    // We listen for the specific event that tells us the widget is ready
-    window.addEventListener('df-messenger-loaded', () => {
-        // Wait 100ms just to be safe, then expand
-        setTimeout(() => {
-            dfMessenger.setAttribute('expand', 'true');
-            // Also force style update just in case
-            const shadow = dfMessenger.shadowRoot;
-            if(shadow){
-                const style = document.createElement('style');
-                style.textContent = `
-                    .chat-wrapper { 
-                        height: var(--df-messenger-chat-window-height) !important; 
-                        width: var(--df-messenger-chat-window-width) !important;
-                    }
-                `;
-                shadow.appendChild(style);
-            }
-        }, 100);
+    // --- ROBUST AUTO-EXPAND LOGIC ---
+    // 1. Try immediately
+    dfMessenger.setAttribute('expand', 'true');
+
+    // 2. Listen for the load event
+    window.addEventListener('df-messenger-loaded', function (event) {
+        dfMessenger.setAttribute('expand', 'true');
     });
-    
-    // Fallback: If event missed, try periodically
-    const forceExpandInterval = setInterval(() => {
-        if(dfMessenger.shadowRoot) {
+
+    // 3. Aggressive polling for the first 3 seconds to guarantee it opens
+    // This fixes the race condition where the script loads faster than the DOM
+    let checkCount = 0;
+    const expandInterval = setInterval(() => {
+        checkCount++;
+        const shadow = dfMessenger.shadowRoot;
+        
+        // If shadow root exists, the component is ready
+        if (shadow) {
             dfMessenger.setAttribute('expand', 'true');
-            clearInterval(forceExpandInterval);
+            
+            // Optional: Force custom width inside shadow DOM if CSS variables fail
+            const wrapper = shadow.querySelector('.chat-wrapper');
+            if (wrapper) {
+               // This confirms it's open
+               clearInterval(expandInterval);
+            }
         }
-    }, 500);
+        
+        // Stop checking after 3 seconds
+        if (checkCount > 10) clearInterval(expandInterval);
+    }, 300);
 
 
     // Load voices

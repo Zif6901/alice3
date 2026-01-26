@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Auto-Loop)</title>
+  <title>Alice Agent (Fast Mode)</title>
 
   <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
   <style>
@@ -38,7 +38,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: background-color 0.3s ease, transform 0.2s ease;
+      transition: background-color 0.2s ease, transform 0.2s ease;
       outline: none;
     }
 
@@ -64,7 +64,6 @@
       background-color: #FBBC05 !important; 
       color: #fff;
       cursor: pointer; /* Indicates clickable to interrupt */
-      /* Combines a ripple ring AND an opacity flash */
       animation: pulse-ring-yellow 1.5s infinite, flash-opacity 1.5s infinite; 
     }
 
@@ -154,7 +153,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-auto-loop"
+      chat-title="alice-fast-mode"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -173,8 +172,8 @@
     const WAKE_VARIANTS = ["alice", "alex", "allis", "alis", "allas", "ellis", "alas", "dallas"];
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
     
-    // DELAY: Used only if isFinal is NOT detected
-    const STABILITY_DELAY = 800; 
+    // --- UPDATED DELAY: 400ms (Much faster fallback) ---
+    const STABILITY_DELAY = 400; 
     
     // Keep conversation open for 25s
     const CONVERSATION_TIMEOUT_MS = 25000; 
@@ -210,7 +209,6 @@
         window.speechSynthesis.speak(unlock);
 
         // 2. INTERRUPT LOGIC:
-        // If "Processing/Speaking" (Yellow), cancel speech and start Listening immediately.
         if (isProcessing) {
             console.log("👆 User Interrupted Audio!");
             window.speechSynthesis.cancel();
@@ -284,9 +282,10 @@
         command = command.replace(/^[^a-zA-Z0-9]+/, '');
 
         // 3. CRITICAL: Automatic Send on 'isFinal'
+        // This usually triggers instantly when the browser detects end of sentence
         if (latestResult.isFinal && command.length > 0) {
             transcriptBox.innerText = `Confirmed: "${command}"`;
-            executeCommand(command); // Send immediately
+            executeCommand(command); 
             return;
         }
 
@@ -305,7 +304,8 @@
                     return;
             }
 
-            // Fallback Timer
+            // Fallback Timer: This is what catches it if 'isFinal' is slow.
+            // Reduced to 400ms for faster response.
             clearTimeout(commandTimer);
             commandTimer = setTimeout(() => {
                 executeCommand(command);
@@ -319,19 +319,15 @@
           if (isProcessing || text.length < 1) return; 
           
           isProcessing = true; 
-          
-          // Clear memory to allow repetition
           lastTranscript = "";
 
           // --- STATE CHANGE: SPEAKING ---
-          // Turns Yellow + Flashes. Mic stops.
           updateButtonState("speaking");
           transcriptBox.innerText = `Sent: "${text}"`;
           
           console.log("SENDING:", text);
-          recognition.stop(); // Stop listening while we think/speak
+          recognition.stop(); 
 
-          // Watchdog: If API fails, reset after 6s
           clearTimeout(safetyResetTimer);
           safetyResetTimer = setTimeout(() => {
               console.warn("Watchdog: No response. Resetting.");
@@ -356,24 +352,20 @@
       }
 
       // --- RESET STATE (The Loop) ---
-      // Called when Alice finishes speaking OR when user Interrupts
       function resetProcessingState() {
           isProcessing = false; 
           clearTimeout(safetyResetTimer);
           
-          // Automatically restart Mic if session is active
           if (isMicActive) {
              setTimeout(() => {
                  console.log("Restarting Mic...");
                  lastTranscript = ""; 
                  try { recognition.start(); } catch(e) {}
-                 // onstart will turn button Red
              }, 200);
           }
       }
 
       recognition.onend = () => {
-          // If mic stops unexpectedly, restart it (unless we are purposefully processing)
           if (isMicActive && !isProcessing) {
               setTimeout(() => {
                   try { recognition.start(); } catch(e) {}
@@ -413,7 +405,6 @@
         clearTimeout(safetyResetTimer);
 
         let botText = "";
-        // Extract text from Dialogflow response
         if (event.detail.messages) {
             const msg = event.detail.messages.find(m => m.type === 'text');
             if (msg) botText = msg.text;
@@ -428,14 +419,11 @@
 
         if (botText && !isMuted) {
             transcriptBox.innerText = "Alice is speaking (Tap to Interrupt)...";
-            // Button is ALREADY Yellow from executeCommand, so we just speak
             speakText(botText);
         } else {
-            // No text? Go back to listening immediately
             resetProcessingState();
         }
 
-        // Handle Audio payloads if any
         if (event.detail.raw && event.detail.raw.queryResult) {
             const msgs = event.detail.raw.queryResult.responseMessages || event.detail.raw.queryResult.fulfillmentMessages;
             if (msgs) {
@@ -454,7 +442,6 @@
         if (!v) v = availableVoices.find(v => v.lang.includes("en-"));
         if (v) utterance.voice = v;
         
-        // When speech ends, go back to Red (Listening)
         utterance.onend = () => { resetProcessingState(); };
         utterance.onerror = () => { resetProcessingState(); };
 
@@ -478,6 +465,7 @@
   </script>
 </body>
 </html>
+
 
 
 

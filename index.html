@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alice Agent (Iron Grip Open)</title>
+  <title>Alice Agent (Smart Auto-Expand)</title>
 
   <script>
     localStorage.removeItem('df-messenger-state');
@@ -28,6 +28,15 @@
       
       bottom: 16px;
       right: 16px;
+    }
+
+    /* Hide the default chat bubble if we want to force the window open immediately 
+       (Optional: prevents the flicker of the small icon) */
+    df-messenger:not([expanded=true]) {
+        visibility: hidden; /* Hide until we force it open */
+    }
+    df-messenger[expanded=true] {
+        visibility: visible;
     }
 
     /* Microphone Button */
@@ -69,39 +78,56 @@
 <body>
 
   <script>
-    // We start this loop immediately. It will run every 100ms.
-    let attempts = 0;
-    const ironGripLoop = setInterval(() => {
-        attempts++;
+    // This script runs independently and monitors the widget's physical state
+    const enforcerInterval = setInterval(() => {
         const dfMessenger = document.querySelector('df-messenger');
         
         if (dfMessenger && dfMessenger.shadowRoot) {
             const shadow = dfMessenger.shadowRoot;
+            
+            // Check the internal 'expanded' attribute and height
+            const isExpanded = dfMessenger.getAttribute('expand') === 'true';
+            
+            // Get the Chat Wrapper (Window) and Bubble (Icon)
             const wrapper = shadow.querySelector('.chat-wrapper');
-            
-            // --- THE DIRECT OVERRIDE ---
-            if (wrapper) {
-                // If it's not visible, we FORCE it visible via inline styles.
-                // This overrides any internal JS that tries to set display:none
-                if (wrapper.style.display !== 'flex') {
-                    console.log(`[Attempt ${attempts}] forcing display: flex`);
-                    wrapper.style.setProperty('display', 'flex', 'important');
-                    wrapper.style.setProperty('visibility', 'visible', 'important');
-                    wrapper.style.setProperty('opacity', '1', 'important');
-                    wrapper.style.setProperty('bottom', '0px', 'important');
-                    wrapper.classList.add('chat-open'); // Add the class just in case
+            const bubble = shadow.querySelector('df-messenger-chat-bubble');
+            const iconButton = shadow.querySelector('#widgetIcon');
+
+            // --- CONDITION: IS IT CLOSED? ---
+            // If the wrapper is missing, or display is none, OR the 'expand' attribute is missing...
+            if (!isExpanded || (wrapper && wrapper.style.display === 'none')) {
+                
+                console.log("⚠️ Widget detected CLOSED. Forcing open...");
+
+                // Action 1: Force Attribute
+                dfMessenger.setAttribute('expand', 'true');
+                
+                // Action 2: Click the Icon (The most reliable trigger)
+                // We try clicking the specific icon button first, then the general bubble
+                if (iconButton) {
+                    iconButton.click();
+                } else if (bubble) {
+                    bubble.click();
                 }
-            }
-            
-            // Also keep forcing the attribute
-            if (dfMessenger.getAttribute('expand') !== 'true') {
-                 dfMessenger.setAttribute('expand', 'true');
+                
+                // Action 3: Show the element (in case we hid it via CSS)
+                dfMessenger.style.visibility = 'visible';
+
+            } else {
+                // --- CONDITION: IT IS OPEN! ---
+                console.log("✅ Widget detected OPEN. Success.");
+                
+                // Ensure it stays visible
+                dfMessenger.style.visibility = 'visible';
+                
+                // Stop the loop, we are done.
+                clearInterval(enforcerInterval);
             }
         }
-        
-        // Run this enforcement for 5 seconds to beat any race conditions
-        if (attempts > 50) clearInterval(ironGripLoop);
-    }, 100);
+    }, 500); // Check every half second
+
+    // Safety: Stop checking after 10 seconds
+    setTimeout(() => clearInterval(enforcerInterval), 10000);
   </script>
 
   <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
@@ -114,7 +140,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="alice-iron-grip"
+      chat-title="alice-smart-enforce"
       chat-title-icon="">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -360,26 +386,3 @@
   </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

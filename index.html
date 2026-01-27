@@ -121,7 +121,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="ALICE-Voice-v8"
+      chat-title="ALICE-Voice-v9"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -137,9 +137,8 @@
     const transcriptBox = document.getElementById('live-transcript');
     const dfMessenger = document.querySelector('df-messenger');
 
-    // --- CONFIGURATION ---
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
-    const STABILITY_DELAY = 1200; // 1.2s silence debounce
+    const STABILITY_DELAY = 1200; 
     
     let isMicActive = false;
     let isProcessing = false; 
@@ -147,6 +146,7 @@
     let availableVoices = [];
     
     let debounceTimer = null; 
+    let watchdogTimer = null; // Stored ID so we can cancel it
     let pendingTranscript = ""; 
 
     // --- LOAD VOICES ---
@@ -154,29 +154,26 @@
     window.speechSynthesis.onvoiceschanged = loadVoices;
     loadVoices();
 
-    // --- RECOGNITION SETUP ---
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      // Turn OFF continuous mode. We want "Turn-Based" logic.
       recognition.continuous = false;  
       recognition.interimResults = true; 
       recognition.lang = 'en-US';
 
       // --- BUTTON CLICK ---
       micBtn.addEventListener('click', () => {
-        // 1. INTERRUPT: If speaking/processing, Stop audio & immediately listen.
+        // 1. INTERRUPT: If Alice is speaking (Processing), STOP her and Listen.
         if (isProcessing) {
             console.log("👆 User Interrupted Audio -> Switching to Listen");
             window.speechSynthesis.cancel();
             isProcessing = false;
-            // Force start mic immediately (Yellow -> Red)
-            startMic(); 
+            startMic(); // Immediate Red
             return;
         }
 
-        // 2. TOGGLE: If listening, stop. If idle, start.
+        // 2. TOGGLE: Normal on/off
         if (isMicActive) {
             manualStop(); 
         } else {
@@ -185,21 +182,22 @@
       });
 
       function startMic() {
-          // Prevent double-start
           if (isMicActive) return;
 
+          // Clear any lingering watchdogs
+          clearTimeout(watchdogTimer);
+
           pendingTranscript = "";
-          
-          // Visuals: Go straight to Red/Hearing (skip initializing yellow if possible)
           transcriptBox.style.display = "block";
           transcriptBox.innerText = "Listening...";
-          updateButtonState("hearing"); // IMMEDIATE RED
+          
+          // Visual: Immediate Red
+          updateButtonState("hearing"); 
           
           try { 
              recognition.start(); 
              isMicActive = true;
           } catch(e) {
-             // If already started, just ensure state matches
              if(e.message && e.message.includes('started')) {
                  isMicActive = true;
              }
@@ -250,22 +248,18 @@
         }
       };
 
-      // --- WHEN MIC STOPS ---
       recognition.onend = () => {
           isMicActive = false;
           
-          // If we have text, Send it.
           if (pendingTranscript.length > 1) {
-              
               if (EXIT_COMMANDS.includes(pendingTranscript.toLowerCase())) {
                   transcriptBox.innerText = "Session Ended.";
                   updateButtonState("idle");
                   return;
               }
               executeCommand(pendingTranscript);
-
           } else {
-              // Only go to Blue/Idle if we are NOT about to speak
+              // Only go blue if we aren't already processing an answer
               if (!isProcessing) updateButtonState("idle");
           }
       };
@@ -280,20 +274,21 @@
       function executeCommand(text) {
           isProcessing = true; 
           
-          // Set to Yellow (Speaking) immediately while we wait for bot
+          // IMMEDIATE YELLOW (Waiting/Speaking)
           updateButtonState("speaking");
           
           transcriptBox.innerText = `Sent: "${text}"`;
           console.log("SENDING:", text);
           
-          // Watchdog
-          setTimeout(() => {
+          // Watchdog: If Dialogflow is dead for 8 seconds, reset.
+          clearTimeout(watchdogTimer);
+          watchdogTimer = setTimeout(() => {
               if (isProcessing) {
                  console.warn("Watchdog: No response.");
                  isProcessing = false;
                  updateButtonState("idle");
               }
-          }, 6000);
+          }, 8000);
           
           dfMessenger.setAttribute('expand', 'true');
           dfMessenger.renderCustomText(text, true);
@@ -308,7 +303,7 @@
 
     function updateButtonState(state) {
         micBtn.classList.remove('initializing', 'hearing', 'speaking');
-        micBtn.style.backgroundColor = "#4285F4"; // Default Blue
+        micBtn.style.backgroundColor = "#4285F4"; // Blue by default
         
         if (state === "initializing") micBtn.classList.add('initializing');
         else if (state === "hearing") micBtn.classList.add('hearing');
@@ -317,6 +312,10 @@
 
     // --- RESPONSE HANDLING ---
     window.addEventListener('df-response-received', (event) => {
+        // 1. DATA RECEIVED: KILL THE WATCHDOG IMMEDIATELY
+        // This stops the button from turning Blue if she talks for a long time.
+        clearTimeout(watchdogTimer);
+        
         let botText = "";
         if (event.detail.messages) {
             const msg = event.detail.messages.find(m => m.type === 'text');
@@ -332,11 +331,11 @@
 
         if (botText && !isMuted) {
             transcriptBox.innerText = "Alice is speaking (Tap to Interrupt)...";
-            // Ensure UI is Yellow
+            // Reinforce Yellow
             updateButtonState("speaking");
             speakText(botText);
         } else {
-            // No text? Go back to listening immediately (or idle)
+            // If there's no text (e.g. just a card), loop back to Mic immediately.
             isProcessing = false;
             startMic(); 
         }
@@ -358,10 +357,10 @@
         if (!v) v = availableVoices.find(v => v.lang.includes("en-"));
         if (v) utterance.voice = v;
         
-        // --- TRANSITION LOGIC ---
+        // --- SEAMLESS TRANSITION ---
+        // When she finishes speaking, switch immediately to Red (Listening).
         utterance.onend = () => { 
             isProcessing = false;
-            // Immediate switch: Yellow -> Red
             startMic(); 
         };
         
@@ -373,12 +372,10 @@
     }
 
     function playAudioFile(url) {
-        // Ensure UI is Yellow
         updateButtonState("speaking");
         const audio = new Audio(url);
         audio.onended = () => {
              isProcessing = false;
-             // Immediate switch: Yellow -> Red
              startMic(); 
         };
         audio.onerror = () => {

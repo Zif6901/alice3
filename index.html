@@ -68,9 +68,18 @@
     }
     #help-btn:hover { background-color: #e8eaed; transform: scale(1.1); }
 
+    /* 4. Download Button */
+    #download-btn {
+      position: fixed; bottom: 25px; right: 250px; z-index: 1000; width: 40px; height: 40px;
+      border-radius: 50%; border: none; background-color: #f1f3f4; color: #5f6368; font-size: 18px;
+      font-weight: bold; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.2); 
+      display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; outline: none;
+    }
+    #download-btn:hover { background-color: #e8eaed; transform: scale(1.1); }
+
     /* --- TRANSCRIPT BOX --- */
     #live-transcript {
-      position: fixed; bottom: 28px; right: 260px; /* Moved left to make room for buttons */
+      position: fixed; bottom: 28px; right: 310px; /* Moved left for new button */
       background: rgba(32, 33, 36, 0.95);
       color: white; padding: 10px 16px; border-radius: 24px; font-family: 'Google Sans', sans-serif;
       font-size: 14px; letter-spacing: 0.5px; max-width: 350px; display: none; z-index: 998;
@@ -151,13 +160,14 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="ALICE-Voice"
-      chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
+      chat-title="ALICE-Voice-v1"
+      chat-title-icon="https://avatars.slack-edge.com/2025-12-19/10170520751025_29a6b4ccf1c55fd5f40d_512.png">
     </df-messenger-chat-bubble>
   </df-messenger>
 
   <div id="live-transcript">Initializing...</div>
   
+  <button id="download-btn" title="Download Transcript">⬇️</button>
   <button id="help-btn" title="How to Use">?</button>
   <button id="mute-btn" title="Toggle Sound Response">🔊</button>
   <button id="voice-trigger-btn" title="Click to Speak">🎙️</button>
@@ -167,9 +177,10 @@
           <h2>How to use Alice</h2>
           <ul>
               <li><strong>Tap 🎙️ (Blue):</strong> Starts listening. Speak your command clearly.</li>
+              <li><strong>Tap Chat Icon:</strong> Press the chat bubble in the bottom right corner to see the text transcript.</li>
               <li><strong>Auto-Send:</strong> Stop speaking for 1 second to automatically send your message.</li>
               <li><strong>Tap 🎙️ (Yellow):</strong> Alice is speaking. Tap it to interrupt her and speak immediately.</li>
-              <li><strong>Tap 🔊:</strong> Mute or Unmute audio responses.</li>
+              <li><strong>Tap ⬇️:</strong> Download the conversation transcript.</li>
           </ul>
           <p style="font-size:13px; color:#999; text-align:center;">Mic turns 🔴 Red when listening.</p>
           <button class="close-modal-btn" onclick="document.getElementById('instruction-modal').style.display='none'">Got it!</button>
@@ -181,6 +192,7 @@
     const micBtn = document.getElementById('voice-trigger-btn');
     const muteBtn = document.getElementById('mute-btn');
     const helpBtn = document.getElementById('help-btn');
+    const downloadBtn = document.getElementById('download-btn');
     const helpModal = document.getElementById('instruction-modal');
     const transcriptBox = document.getElementById('live-transcript');
     const dfMessenger = document.querySelector('df-messenger');
@@ -197,9 +209,33 @@
     let watchdogTimer = null;
     let pendingTranscript = ""; 
 
+    // Transcript Storage
+    let conversationLog = [];
+
     // --- HELP BUTTON LOGIC ---
     helpBtn.addEventListener('click', () => {
         helpModal.style.display = "flex";
+    });
+
+    // --- DOWNLOAD BUTTON LOGIC ---
+    downloadBtn.addEventListener('click', () => {
+        if (conversationLog.length === 0) {
+            alert("No conversation to download yet.");
+            return;
+        }
+        
+        const textContent = conversationLog.join("\n\n");
+        const blob = new Blob([textContent], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        a.href = url;
+        a.download = `alice-transcript-${timestamp}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
     });
 
     // --- LOAD VOICES ---
@@ -321,8 +357,12 @@
           
           transcriptBox.innerText = `Sent: "${text}"`;
           console.log("SENDING:", text);
+
+          // LOG USER MESSAGE
+          const time = new Date().toLocaleTimeString();
+          conversationLog.push(`[${time}] User: ${text}`);
           
-          // Watchdog: Cancelled by response. Only fires if dead for 8s.
+          // Watchdog
           clearTimeout(watchdogTimer);
           watchdogTimer = setTimeout(() => {
               if (isProcessing) {
@@ -369,6 +409,11 @@
                 const txt = qr.responseMessages.find(m => m.text);
                 if (txt) botText = txt.text.text[0];
             } else if (qr.fulfillmentText) botText = qr.fulfillmentText;
+        }
+
+        if (botText) {
+             const time = new Date().toLocaleTimeString();
+             conversationLog.push(`[${time}] Alice: ${botText}`);
         }
 
         if (botText && !isMuted) {
@@ -432,6 +477,7 @@
   </script>
 </body>
 </html>
+
 
 
 

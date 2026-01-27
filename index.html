@@ -124,6 +124,7 @@
             if (!shadow.querySelector('#nuclear-open-style')) {
                 const style = document.createElement('style');
                 style.id = 'nuclear-open-style';
+                // THIS CSS NOW REPLACES THE BUBBLE ICON
                 style.textContent = `
                     .chat-wrapper { 
                         display: flex !important;
@@ -134,6 +135,19 @@
                         width: var(--df-messenger-chat-window-width) !important;
                         transform: none !important;
                         pointer-events: all !important;
+                    }
+                    /* CUSTOM ICON OVERRIDE */
+                    button#widgetIcon {
+                        background-image: url('https://avatars.slack-edge.com/2025-12-19/10170520751025_29a6b4ccf1c55fd5f40d_512.png') !important;
+                        background-size: cover !important;
+                        background-position: center !important;
+                        background-repeat: no-repeat !important;
+                        background-color: transparent !important;
+                        border: none !important;
+                    }
+                    /* Hide default SVG */
+                    button#widgetIcon svg {
+                        display: none !important;
                     }
                 `;
                 shadow.appendChild(style);
@@ -160,7 +174,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="ALICE-Voice-v2"
+      chat-title="ALICE-Voice-v3"
       chat-title-icon="https://avatars.slack-edge.com/2025-12-19/10170520751025_29a6b4ccf1c55fd5f40d_512.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -177,7 +191,7 @@
           <h2>How to use Alice</h2>
           <ul>
               <li><strong>Tap 🎙️ (Blue):</strong> Starts listening. Speak your command clearly.</li>
-              <li><strong>Tap Chat Icon:</strong> Press the chat bubble in the bottom right corner to see the text transcript.</li>
+              <li><strong>Tap Chat Icon:</strong> Press the chat bubble (Avatar) in the bottom right corner to see text.</li>
               <li><strong>Auto-Send:</strong> Stop speaking for 1 second to automatically send your message.</li>
               <li><strong>Tap 🎙️ (Yellow):</strong> Alice is speaking. Tap it to interrupt her and speak immediately.</li>
               <li><strong>Tap ⬇️:</strong> Download the conversation transcript.</li>
@@ -477,8 +491,6 @@
   </script>
 </body>
 </html>
-
-
 
 
 

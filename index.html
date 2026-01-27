@@ -117,7 +117,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="ALICE-Voice-v5"
+      chat-title="ALICE-Voice-v6"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -135,9 +135,7 @@
 
     // --- CONFIGURATION ---
     const EXIT_COMMANDS = ["stop", "thank you", "thanks", "bye", "cancel"];
-    
-    // NEW LOGIC: We wait 800ms of silence. If "isFinal" is true, we send even faster.
-    const SILENCE_THRESHOLD = 800; 
+    const STABILITY_DELAY = 900; // 0.9s wait
     const CONVERSATION_TIMEOUT_MS = 25000; 
     
     let isMicActive = false;
@@ -145,13 +143,10 @@
     let isMuted = false;
     let availableVoices = [];
     
+    let commandTimer = null; 
     let conversationTimeoutTimer = null; 
     let safetyResetTimer = null; 
-    
-    // "WATCHER" Variables (Replaces the fragile timer)
-    let watcherInterval = null;
-    let lastHeardTime = 0;
-    let pendingTranscript = "";
+    let pendingTranscript = ""; // IMPORTANT: Holds text while waiting
 
     const loadVoices = () => { availableVoices = window.speechSynthesis.getVoices(); };
     window.speechSynthesis.onvoiceschanged = loadVoices;
@@ -167,28 +162,28 @@
 
       // --- BUTTON CLICK ---
       micBtn.addEventListener('click', () => {
-        // If speaking, interrupt.
+        // 1. Interrupt Speaking
         if (isProcessing) {
-            console.log("👆 User Interrupted Audio!");
             window.speechSynthesis.cancel();
             resetProcessingState(); 
             return;
         }
-        // Toggle Mic
+        // 2. Toggle Mic
         if (isMicActive) stopMic(); else startMic();
       });
 
       function startMic() {
           if (isProcessing) return; 
-          
           pendingTranscript = "";
-          lastHeardTime = 0;
           updateButtonState("initializing");
           transcriptBox.style.display = "block";
           transcriptBox.innerText = "Starting Mic...";
           
-          try { recognition.start(); } catch(e) {
-              if(e.message && e.message.includes('started')) onMicStartSuccess();
+          try { 
+             recognition.start(); 
+          } catch(e) {
+             // If already started, force success state
+             if(e.message && e.message.includes('started')) onMicStartSuccess();
           }
       }
 
@@ -199,38 +194,20 @@
           transcriptBox.innerText = "Listening...";
           updateButtonState("hearing"); 
           startConversationTimer();
-          
-          // START THE WATCHER LOOP
-          if (watcherInterval) clearInterval(watcherInterval);
-          watcherInterval = setInterval(checkSilenceAndSend, 100); // Check every 100ms
       }
 
       function stopMic() {
           isMicActive = false;
           clearTimeout(conversationTimeoutTimer);
           clearTimeout(safetyResetTimer);
-          clearInterval(watcherInterval); // Stop the watcher
+          clearTimeout(commandTimer);
           transcriptBox.style.display = "none";
           recognition.stop();
           window.speechSynthesis.cancel(); 
           updateButtonState("idle"); 
       }
 
-      // --- CORE LOGIC: THE WATCHER ---
-      // Instead of relying on a timer that resets, we POLL the state.
-      function checkSilenceAndSend() {
-          if (!isMicActive || isProcessing || pendingTranscript.length < 2) return;
-
-          const now = Date.now();
-          const timeSinceLastWord = now - lastHeardTime;
-
-          // If it's been quiet for 800ms, SEND IT.
-          if (timeSinceLastWord > SILENCE_THRESHOLD) {
-              console.log("🚀 Watcher: Silence detected. Sending.");
-              executeCommand(pendingTranscript);
-          }
-      }
-
+      // --- CORE LOGIC ---
       recognition.onresult = (event) => {
         if (isProcessing) return; 
         
@@ -238,44 +215,43 @@
         const latestResult = results[results.length - 1];
         let transcript = latestResult[0].transcript;
         
-        // Cleanup
+        // Remove noise/special chars
         let command = transcript.replace(/^[^a-zA-Z0-9]+/, '').trim();
 
+        // Must be at least 2 chars
         if (command.length < 2) return;
 
-        // UPDATE STATE for the Watcher
+        // Store it immediately
         pendingTranscript = command;
-        lastHeardTime = Date.now(); // Reset the silence clock
 
-        // UI Update
         const time = new Date().toLocaleTimeString().split(' ')[0];
         transcriptBox.innerText = `[${time}] Heard: "${command}"...`;
 
-        // Check Exit Commands immediately
         if (EXIT_COMMANDS.includes(command.toLowerCase())) {
             endConversationMode("User ended session");
             return;
         }
 
         startConversationTimer();
+
+        clearTimeout(commandTimer);
+        // Wait 900ms. If silence persists, send.
+        commandTimer = setTimeout(() => { executeCommand(command); }, STABILITY_DELAY);
       };
 
       function executeCommand(text) {
+          clearTimeout(commandTimer); 
           if (isProcessing || text.length < 2) return; 
           
           isProcessing = true; 
-          
-          // Stop the watcher immediately so we don't send twice
-          clearInterval(watcherInterval);
           pendingTranscript = ""; 
-
           updateButtonState("speaking");
           transcriptBox.innerText = `Sent: "${text}"`;
           console.log("SENDING:", text);
           
           recognition.stop(); 
 
-          // Watchdog
+          // Watchdog: Reset if bot dies
           clearTimeout(safetyResetTimer);
           safetyResetTimer = setTimeout(() => {
               console.warn("Watchdog: No response. Resetting.");
@@ -309,8 +285,20 @@
           }
       }
 
+      // --- THE CRITICAL FIX ---
+      // When the browser stops the mic (which it does after 1 sentence often),
+      // we check if we had text waiting. If yes, SEND IT.
       recognition.onend = () => {
           if (isMicActive && !isProcessing) {
+              
+              // 1. Check for lost text
+              if (pendingTranscript.length > 1) {
+                  console.log("🎤 Mic died but found pending text. Sending now.");
+                  executeCommand(pendingTranscript);
+                  return;
+              }
+
+              // 2. Restart Mic if no text was pending
               setTimeout(() => { try { recognition.start(); } catch(e) {} }, 200); 
           } else if (!isMicActive) {
               updateButtonState("idle");
@@ -319,6 +307,7 @@
 
       recognition.onerror = (event) => {
           if (event.error === 'not-allowed') stopMic();
+          // Ignore 'no-speech' errors, just keep going
           if (event.error !== 'no-speech' && micBtn.classList.contains('initializing')) stopMic();
       };
     } else {
@@ -392,7 +381,6 @@
   </script>
 </body>
 </html>
-
 
 
 

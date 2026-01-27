@@ -42,9 +42,16 @@
       outline: none;
     }
     #voice-trigger-btn:hover { transform: scale(1.1); }
+    
+    /* STATES */
+    /* Initializing: Solid Yellow (Wait) */
     #voice-trigger-btn.initializing { background-color: #FBBC05 !important; cursor: wait; }
+    
+    /* Hearing: Flashing Red (Speak Now) */
     #voice-trigger-btn.hearing { background-color: #EA4335 !important; box-shadow: 0 0 15px #EA4335; animation: pulse-red 1.5s infinite; }
-    #voice-trigger-btn.speaking { background-color: #FBBC05 !important; color: #fff; cursor: pointer; animation: pulse-ring-yellow 1.5s infinite, flash-opacity 1.5s infinite; }
+    
+    /* Speaking: Flashing Yellow (Alice Talking) */
+    #voice-trigger-btn.speaking { background-color: #FBBC05 !important; color: #fff; cursor: pointer; animation: pulse-ring-yellow 1.5s infinite; }
 
     #mute-btn {
       position: fixed; bottom: 25px; right: 150px; z-index: 1000; width: 40px; height: 40px;
@@ -65,7 +72,6 @@
     
     @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); } 100% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); } }
     @keyframes pulse-ring-yellow { 0% { box-shadow: 0 0 0 0 rgba(251, 188, 5, 0.7); } 70% { box-shadow: 0 0 0 15px rgba(251, 188, 5, 0); } 100% { box-shadow: 0 0 0 0 rgba(251, 188, 5, 0); } }
-    @keyframes flash-opacity { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
   </style>
 </head>
 <body>
@@ -115,7 +121,7 @@
     language-code="en"
     max-query-length="-1">
     <df-messenger-chat-bubble
-      chat-title="ALICE-Voice-v7"
+      chat-title="ALICE-Voice-v8"
       chat-title-icon="https://storage.cloud.google.com/alice-avatars/ALICE TT&I.png">
     </df-messenger-chat-bubble>
   </df-messenger>
@@ -160,13 +166,17 @@
 
       // --- BUTTON CLICK ---
       micBtn.addEventListener('click', () => {
-        // 1. If speaking/processing, STOP everything.
+        // 1. INTERRUPT: If speaking/processing, Stop audio & immediately listen.
         if (isProcessing) {
+            console.log("👆 User Interrupted Audio -> Switching to Listen");
             window.speechSynthesis.cancel();
-            resetProcessingState(); // This will effectively "Hang up"
+            isProcessing = false;
+            // Force start mic immediately (Yellow -> Red)
+            startMic(); 
             return;
         }
-        // 2. Toggle Mic
+
+        // 2. TOGGLE: If listening, stop. If idle, start.
         if (isMicActive) {
             manualStop(); 
         } else {
@@ -175,32 +185,34 @@
       });
 
       function startMic() {
-          if (isProcessing) return; 
-          
+          // Prevent double-start
+          if (isMicActive) return;
+
           pendingTranscript = "";
-          updateButtonState("initializing");
+          
+          // Visuals: Go straight to Red/Hearing (skip initializing yellow if possible)
           transcriptBox.style.display = "block";
-          transcriptBox.innerText = "Starting Mic...";
+          transcriptBox.innerText = "Listening...";
+          updateButtonState("hearing"); // IMMEDIATE RED
           
           try { 
              recognition.start(); 
+             isMicActive = true;
           } catch(e) {
-             // If already started, force UI update
-             if(e.message && e.message.includes('started')) onMicStartSuccess();
+             // If already started, just ensure state matches
+             if(e.message && e.message.includes('started')) {
+                 isMicActive = true;
+             }
           }
       }
 
-      recognition.onstart = () => { onMicStartSuccess(); };
-
-      function onMicStartSuccess() {
+      recognition.onstart = () => { 
           isMicActive = true;
           transcriptBox.innerText = "Listening...";
           updateButtonState("hearing"); 
-      }
+      };
 
       function manualStop() {
-          // User clicked button to stop. 
-          // If we have text, SEND IT. If not, just close.
           isMicActive = false;
           recognition.stop();
           if (pendingTranscript.length > 1) {
@@ -220,46 +232,40 @@
         let command = transcript.replace(/^[^a-zA-Z0-9]+/, '').trim();
         if (command.length < 1) return;
 
-        pendingTranscript = command; // Store latest text
+        pendingTranscript = command; 
 
         const time = new Date().toLocaleTimeString().split(' ')[0];
         transcriptBox.innerText = `[${time}] Heard: "${command}"...`;
 
-        // CLEAR previous timer
         clearTimeout(debounceTimer);
 
-        // LOGIC:
-        // 1. If Browser says "isFinal", we stop & send immediately.
-        // 2. If silence for 1.2s, we stop & send.
-        
         if (latestResult.isFinal) {
             console.log("🚀 Final Result detected. Sending.");
-            recognition.stop(); // This triggers onend, which sends.
+            recognition.stop(); 
         } else {
             debounceTimer = setTimeout(() => {
                 console.log("⏰ Silence Timer detected. Sending.");
-                recognition.stop(); // This triggers onend, which sends.
+                recognition.stop(); 
             }, STABILITY_DELAY);
         }
       };
 
-      // --- WHEN MIC STOPS (Either by silence or 'isFinal') ---
+      // --- WHEN MIC STOPS ---
       recognition.onend = () => {
           isMicActive = false;
           
-          // If we have valid text, SEND IT.
-          if (!isProcessing && pendingTranscript.length > 1) {
+          // If we have text, Send it.
+          if (pendingTranscript.length > 1) {
               
-              // Check for Exit
               if (EXIT_COMMANDS.includes(pendingTranscript.toLowerCase())) {
                   transcriptBox.innerText = "Session Ended.";
                   updateButtonState("idle");
                   return;
               }
-
               executeCommand(pendingTranscript);
+
           } else {
-              // No text? Just go idle.
+              // Only go to Blue/Idle if we are NOT about to speak
               if (!isProcessing) updateButtonState("idle");
           }
       };
@@ -269,20 +275,23 @@
               updateButtonState("idle");
               isMicActive = false;
           }
-          // Ignore 'no-speech' (just loop or stop)
       };
 
       function executeCommand(text) {
           isProcessing = true; 
+          
+          // Set to Yellow (Speaking) immediately while we wait for bot
           updateButtonState("speaking");
+          
           transcriptBox.innerText = `Sent: "${text}"`;
           console.log("SENDING:", text);
           
-          // Watchdog: Reset if bot doesn't reply in 6s
+          // Watchdog
           setTimeout(() => {
               if (isProcessing) {
                  console.warn("Watchdog: No response.");
-                 resetProcessingState();
+                 isProcessing = false;
+                 updateButtonState("idle");
               }
           }, 6000);
           
@@ -290,14 +299,7 @@
           dfMessenger.renderCustomText(text, true);
           dfMessenger.sendRequest("query", text);
           
-          pendingTranscript = ""; // Clear buffer
-      }
-
-      function resetProcessingState() {
-          isProcessing = false; 
-          isMicActive = false;
-          updateButtonState("idle");
-          // NOTE: We do NOT auto-restart here. We wait for TTS to finish.
+          pendingTranscript = ""; 
       }
 
     } else {
@@ -306,7 +308,8 @@
 
     function updateButtonState(state) {
         micBtn.classList.remove('initializing', 'hearing', 'speaking');
-        micBtn.style.backgroundColor = "#4285F4"; 
+        micBtn.style.backgroundColor = "#4285F4"; // Default Blue
+        
         if (state === "initializing") micBtn.classList.add('initializing');
         else if (state === "hearing") micBtn.classList.add('hearing');
         else if (state === "speaking") micBtn.classList.add('speaking');
@@ -329,15 +332,15 @@
 
         if (botText && !isMuted) {
             transcriptBox.innerText = "Alice is speaking (Tap to Interrupt)...";
+            // Ensure UI is Yellow
+            updateButtonState("speaking");
             speakText(botText);
         } else {
-            // No text to speak? Just reset immediately so user can talk again.
-            resetProcessingState();
-            // Optional: Auto-restart mic here if you want "Continuous Conversation"
-            // startMic(); 
+            // No text? Go back to listening immediately (or idle)
+            isProcessing = false;
+            startMic(); 
         }
 
-        // Handle Audio Files
         if (event.detail.raw && event.detail.raw.queryResult) {
             const msgs = event.detail.raw.queryResult.responseMessages || event.detail.raw.queryResult.fulfillmentMessages;
             if (msgs) {
@@ -355,25 +358,33 @@
         if (!v) v = availableVoices.find(v => v.lang.includes("en-"));
         if (v) utterance.voice = v;
         
-        // --- ON END: RESTART MIC AUTOMATICALLY ---
+        // --- TRANSITION LOGIC ---
         utterance.onend = () => { 
             isProcessing = false;
-            startMic(); // <--- This creates the "Walkie Talkie" loop
+            // Immediate switch: Yellow -> Red
+            startMic(); 
         };
         
         utterance.onerror = () => { 
-            resetProcessingState(); 
+            isProcessing = false;
+            startMic(); 
         };
         window.speechSynthesis.speak(utterance);
     }
 
     function playAudioFile(url) {
+        // Ensure UI is Yellow
+        updateButtonState("speaking");
         const audio = new Audio(url);
         audio.onended = () => {
              isProcessing = false;
-             startMic(); // Restart mic after audio file
+             // Immediate switch: Yellow -> Red
+             startMic(); 
         };
-        audio.onerror = resetProcessingState;
+        audio.onerror = () => {
+             isProcessing = false;
+             startMic();
+        };
         audio.play();
     }
 
@@ -386,6 +397,7 @@
   </script>
 </body>
 </html>
+
 
 
 
